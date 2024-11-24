@@ -61,37 +61,62 @@ func main() {
 ```
 
 Replace the URLs with the aggregator and publisher endpoints you wish to use.
-
 ### Storing Data
 
 You can store data on the Walrus Publisher using the `Store` method:
 
 ```go
 data := []byte("some string")
-blobID, err := client.Store(data, &walrus.StoreOptions{Epochs: 1})
+resp, err := client.Store(data, &walrus.StoreOptions{Epochs: 1})
 if err != nil {
     log.Fatalf("Error storing data: %v", err)
 }
-fmt.Printf("Stored blob ID: %s\n", blobID)
+
+// Check response type and handle accordingly
+if resp.NewlyCreated != nil {
+    blobID := resp.NewlyCreated.BlobObject.BlobID
+    fmt.Printf("Stored new blob ID: %s with cost: %d\n", 
+        blobID, resp.NewlyCreated.Cost)
+} else if resp.AlreadyCertified != nil {
+    blobID := resp.AlreadyCertified.BlobID
+    fmt.Printf("Blob already exists with ID: %s, end epoch: %d\n", 
+        blobID, resp.AlreadyCertified.EndEpoch)
+}
 ```
+
+### Methods
+
+#### Store
+
+Stores data on the Walrus Publisher and returns detailed response information.
+
+```go
+func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error)
+```
+
+**Parameters:**
+- `data []byte`: The data to store.
+- `opts *StoreOptions`: Storage options, such as the number of epochs.
+
+**Returns:**
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
+- `error`: Error if the operation fails.
 
 #### StoreReader
 
 Stores data from an io.Reader on the Walrus Publisher.
 
 ```go
-func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreOptions) (string, error)
+func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreOptions) (*StoreResponse, error)
 ```
 
 **Parameters:**
-
 - `reader io.Reader`: The source to read data from.
 - `contentLength int64`: The total size of the data to be stored. Use -1 if unknown.
 - `opts *StoreOptions`: Storage options, such as the number of epochs.
 
 **Returns:**
-
-- `string`: The blob ID of the stored data.
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
 #### StoreFromURL
@@ -99,18 +124,33 @@ func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreO
 Downloads and stores content from a URL on the Walrus Publisher.
 
 ```go
-func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (string, error)
+func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (*StoreResponse, error)
 ```
 
 **Parameters:**
-
 - `sourceURL string`: The URL to download content from.
 - `opts *StoreOptions`: Storage options, such as the number of epochs.
 
 **Returns:**
-
-- `string`: The blob ID of the stored content.
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
+
+#### StoreFile
+
+Stores a file on the Walrus Publisher.
+
+```go
+func (c *Client) StoreFile(filePath string, opts *StoreOptions) (*StoreResponse, error)
+```
+
+**Parameters:**
+- `filePath string`: Path to the file to store.
+- `opts *StoreOptions`: Storage options.
+
+**Returns:**
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
+- `error`: Error if the operation fails.
+
 
 ### Retrieving Data
 
@@ -285,7 +325,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 # Contact
 
 For any questions or support, please open an issue on the GitHub repository.
-
----
-
-*Note: Replace `github.com/suiet/walrus-go` with the actual URL of your GitHub repository or module path.*
