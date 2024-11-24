@@ -34,11 +34,25 @@ type StoreOptions struct {
 
 // BlobInfo represents the information returned after storing data
 type BlobInfo struct {
-    BlobID string `json:"blobId"`
+    BlobID   string `json:"blobId"`
+    EndEpoch int    `json:"endEpoch"`
+}
+
+// BlobObject represents the blob object information
+type BlobObject struct {
+    ID              string      `json:"id"`
+    StoredEpoch     int         `json:"storedEpoch"`
+    BlobID          string      `json:"blobId"`
+    Size            int64       `json:"size"`
+    ErasureCodeType string      `json:"erasureCodeType"`
+    CertifiedEpoch  int         `json:"certifiedEpoch"`
+    Storage         StorageInfo `json:"storage"`
 }
 
 // StoreResponse represents the unified response for store operations
 type StoreResponse struct {
+    Blob BlobInfo `json:"blobInfo,omitempty"`
+
     // For newly created blobs
     NewlyCreated *struct {
         BlobObject  BlobObject `json:"blobObject"`
@@ -54,15 +68,17 @@ type StoreResponse struct {
     } `json:"alreadyCertified,omitempty"`
 }
 
-// BlobObject represents the blob object information
-type BlobObject struct {
-    ID              string      `json:"id"`
-    StoredEpoch     int         `json:"storedEpoch"`
-    BlobID          string      `json:"blobId"`
-    Size            int         `json:"size"`
-    ErasureCodeType string      `json:"erasureCodeType"`
-    CertifiedEpoch  int         `json:"certifiedEpoch"`
-    Storage         StorageInfo `json:"storage"`
+// NormalizeBlobResponse is a helper function to normalize the response from the blob service
+func (resp *StoreResponse) NormalizeBlobResponse() {
+    if resp.AlreadyCertified != nil {
+        resp.Blob.BlobID = resp.AlreadyCertified.BlobID
+        resp.Blob.EndEpoch = resp.AlreadyCertified.EndEpoch
+    }
+
+    if resp.NewlyCreated != nil {
+        resp.Blob.BlobID = resp.NewlyCreated.BlobObject.BlobID
+        resp.Blob.EndEpoch = resp.NewlyCreated.BlobObject.Storage.EndEpoch
+    }
 }
 
 // EventInfo represents the certification event information
