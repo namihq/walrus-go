@@ -37,42 +37,50 @@ type BlobInfo struct {
     BlobID string `json:"blobId"`
 }
 
-// NewlyCreatedResponse represents the response when a new blob is created
-type NewlyCreatedResponse struct {
-    NewlyCreated struct {
-        BlobObject struct {
-            ID              string `json:"id"`
-            StoredEpoch     int    `json:"storedEpoch"`
-            BlobID          string `json:"blobId"`
-            Size            int    `json:"size"`
-            ErasureCodeType string `json:"erasureCodeType"`
-            CertifiedEpoch  int    `json:"certifiedEpoch"`
-            Storage         struct {
-                ID          string `json:"id"`
-                StartEpoch  int    `json:"startEpoch"`
-                EndEpoch    int    `json:"endEpoch"`
-                StorageSize int    `json:"storageSize"`
-            } `json:"storage"`
-        } `json:"blobObject"`
-        EncodedSize int `json:"encodedSize"`
-        Cost        int `json:"cost"`
-    } `json:"newlyCreated"`
+// StoreResponse represents the unified response for store operations
+type StoreResponse struct {
+    // For newly created blobs
+    NewlyCreated *struct {
+        BlobObject  BlobObject `json:"blobObject"`
+        EncodedSize int        `json:"encodedSize"`
+        Cost        int        `json:"cost"`
+    } `json:"newlyCreated,omitempty"`
+
+    // For already certified blobs
+    AlreadyCertified *struct {
+        BlobID   string    `json:"blobId"`
+        Event    EventInfo `json:"event"`
+        EndEpoch int       `json:"endEpoch"`
+    } `json:"alreadyCertified,omitempty"`
 }
 
-// AlreadyCertifiedResponse represents the response when the blob is already certified
-type AlreadyCertifiedResponse struct {
-    AlreadyCertified struct {
-        BlobID string `json:"blobId"`
-        Event  struct {
-            TxDigest string `json:"txDigest"`
-            EventSeq string `json:"eventSeq"`
-        } `json:"event"`
-        EndEpoch int `json:"endEpoch"`
-    } `json:"alreadyCertified"`
+// BlobObject represents the blob object information
+type BlobObject struct {
+    ID              string      `json:"id"`
+    StoredEpoch     int         `json:"storedEpoch"`
+    BlobID          string      `json:"blobId"`
+    Size            int         `json:"size"`
+    ErasureCodeType string      `json:"erasureCodeType"`
+    CertifiedEpoch  int         `json:"certifiedEpoch"`
+    Storage         StorageInfo `json:"storage"`
 }
 
-// Store stores data on the Walrus Publisher and returns the blob ID
-func (c *Client) Store(data []byte, opts *StoreOptions) (string, error) {
+// EventInfo represents the certification event information
+type EventInfo struct {
+    TxDigest string `json:"txDigest"`
+    EventSeq string `json:"eventSeq"`
+}
+
+// StorageInfo represents the storage information for a blob
+type StorageInfo struct {
+    ID          string `json:"id"`
+    StartEpoch  int    `json:"startEpoch"`
+    EndEpoch    int    `json:"endEpoch"`
+    StorageSize int    `json:"storageSize"`
+}
+
+// Store stores data on the Walrus Publisher and returns the complete store response
+func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error) {
     urlStr := fmt.Sprintf("%s/v1/store", c.PublisherURL)
     if opts != nil && opts.Epochs > 0 {
         urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
@@ -80,182 +88,108 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (string, error) {
 
     req, err := http.NewRequest("PUT", urlStr, bytes.NewReader(data))
     if err != nil {
-        return "", err
+        return nil, err
     }
 
     req.Header.Set("Content-Type", "application/octet-stream")
 
     resp, err := c.httpClient.Do(req)
     if err != nil {
-        return "", err
+        return nil, err
     }
     defer resp.Body.Close()
 
-    // Read and parse the response
     respData, err := io.ReadAll(resp.Body)
     if err != nil {
-        return "", err
+        return nil, err
     }
 
-    // Check for HTTP errors
     if resp.StatusCode != http.StatusOK {
-        return "", fmt.Errorf("failed to store data: %s", string(respData))
+        return nil, fmt.Errorf("failed to store data: %s", string(respData))
     }
 
-    // Try to parse as NewlyCreatedResponse
-    var newResp NewlyCreatedResponse
-    if err := json.Unmarshal(respData, &newResp); err == nil && newResp.NewlyCreated.BlobObject.BlobID != "" {
-        return newResp.NewlyCreated.BlobObject.BlobID, nil
+    var storeResp StoreResponse
+    if err := json.Unmarshal(respData, &storeResp); err != nil {
+        return nil, fmt.Errorf("failed to parse response: %w", err)
     }
 
-    // Try to parse as AlreadyCertifiedResponse
-    var certResp AlreadyCertifiedResponse
-    if err := json.Unmarshal(respData, &certResp); err == nil && certResp.AlreadyCertified.BlobID != "" {
-        return certResp.AlreadyCertified.BlobID, nil
-    }
-
-    return "", fmt.Errorf("unexpected response: %s", string(respData))
+    return &storeResp, nil
 }
 
-// StoreReader stores data from an io.Reader on the Walrus Publisher and returns the blob ID.
-// The contentLength parameter specifies the total size of the data to be stored.
-// If contentLength is unknown, set it to -1 and the request will be sent without Content-Length header.
-func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreOptions) (string, error) {
-    // Prepare the URL
+// StoreReader stores data from an io.Reader and returns the complete store response
+func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreOptions) (*StoreResponse, error) {
     urlStr := fmt.Sprintf("%s/v1/store", c.PublisherURL)
     if opts != nil && opts.Epochs > 0 {
         urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
     }
 
-    // Create new request with the reader as body
     req, err := http.NewRequest("PUT", urlStr, reader)
     if err != nil {
-        return "", err
+        return nil, err
     }
 
-    // Set headers
     req.Header.Set("Content-Type", "application/octet-stream")
     if contentLength >= 0 {
         req.ContentLength = contentLength
     }
 
-    // Send the request
     resp, err := c.httpClient.Do(req)
     if err != nil {
-        return "", err
+        return nil, err
     }
     defer resp.Body.Close()
 
-    // Read and parse the response
     respData, err := io.ReadAll(resp.Body)
     if err != nil {
-        return "", err
+        return nil, err
     }
 
-    // Check for HTTP errors
     if resp.StatusCode != http.StatusOK {
-        return "", fmt.Errorf("failed to store data: %s", string(respData))
+        return nil, fmt.Errorf("failed to store data: %s", string(respData))
     }
 
-    // Try to parse as NewlyCreatedResponse
-    var newResp NewlyCreatedResponse
-    if err := json.Unmarshal(respData, &newResp); err == nil && newResp.NewlyCreated.BlobObject.BlobID != "" {
-        return newResp.NewlyCreated.BlobObject.BlobID, nil
+    var storeResp StoreResponse
+    if err := json.Unmarshal(respData, &storeResp); err != nil {
+        return nil, fmt.Errorf("failed to parse response: %w", err)
     }
 
-    // Try to parse as AlreadyCertifiedResponse
-    var certResp AlreadyCertifiedResponse
-    if err := json.Unmarshal(respData, &certResp); err == nil && certResp.AlreadyCertified.BlobID != "" {
-        return certResp.AlreadyCertified.BlobID, nil
-    }
-
-    return "", fmt.Errorf("unexpected response: %s", string(respData))
+    return &storeResp, nil
 }
 
-// StoreFromURL downloads content from the provided URL and stores it on the Walrus Publisher.
-// It returns the blob ID of the stored content.
-func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (string, error) {
-    // Create HTTP request to download the content
+// StoreFromURL downloads and stores content from URL and returns the complete store response
+func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (*StoreResponse, error) {
     req, err := http.NewRequest("GET", sourceURL, nil)
     if err != nil {
-        return "", fmt.Errorf("failed to create request: %w", err)
+        return nil, fmt.Errorf("failed to create request: %w", err)
     }
 
-    // Send the request
     resp, err := c.httpClient.Do(req)
     if err != nil {
-        return "", fmt.Errorf("failed to download from URL: %w", err)
+        return nil, fmt.Errorf("failed to download from URL: %w", err)
     }
     defer resp.Body.Close()
 
-    // Check if the download was successful
     if resp.StatusCode != http.StatusOK {
-        return "", fmt.Errorf("failed to download from URL, status code: %d", resp.StatusCode)
+        return nil, fmt.Errorf("failed to download from URL, status code: %d", resp.StatusCode)
     }
 
-    // Use StoreReader to upload the content
     return c.StoreReader(resp.Body, resp.ContentLength, opts)
 }
 
-// StoreFile stores a file on the Walrus Publisher and returns the blob ID
-func (c *Client) StoreFile(filePath string, opts *StoreOptions) (string, error) {
-    // Open the file
+// StoreFile stores a file and returns the complete store response
+func (c *Client) StoreFile(filePath string, opts *StoreOptions) (*StoreResponse, error) {
     file, err := os.Open(filePath)
     if err != nil {
-        return "", err
+        return nil, err
     }
     defer file.Close()
 
-    // Get file size
     stat, err := file.Stat()
     if err != nil {
-        return "", err
+        return nil, err
     }
 
-    // Prepare the URL
-    urlStr := fmt.Sprintf("%s/v1/store", c.PublisherURL)
-    if opts != nil && opts.Epochs > 0 {
-        urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
-    }
-
-    req, err := http.NewRequest("PUT", urlStr, file)
-    if err != nil {
-        return "", err
-    }
-
-    req.Header.Set("Content-Type", "application/octet-stream")
-    req.ContentLength = stat.Size()
-
-    resp, err := c.httpClient.Do(req)
-    if err != nil {
-        return "", err
-    }
-    defer resp.Body.Close()
-
-    // Read and parse the response
-    respData, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return "", err
-    }
-
-    // Check for HTTP errors
-    if resp.StatusCode != http.StatusOK {
-        return "", fmt.Errorf("failed to store file: %s", string(respData))
-    }
-
-    // Try to parse as NewlyCreatedResponse
-    var newResp NewlyCreatedResponse
-    if err := json.Unmarshal(respData, &newResp); err == nil && newResp.NewlyCreated.BlobObject.BlobID != "" {
-        return newResp.NewlyCreated.BlobObject.BlobID, nil
-    }
-
-    // Try to parse as AlreadyCertifiedResponse
-    var certResp AlreadyCertifiedResponse
-    if err := json.Unmarshal(respData, &certResp); err == nil && certResp.AlreadyCertified.BlobID != "" {
-        return certResp.AlreadyCertified.BlobID, nil
-    }
-
-    return "", fmt.Errorf("unexpected response: %s", string(respData))
+    return c.StoreReader(file, stat.Size(), opts)
 }
 
 // Read retrieves a blob from the Walrus Aggregator
