@@ -1,0 +1,254 @@
+# Walrus Go SDK
+
+The **walrus-go** SDK provides a Go client for interacting with the [Walrus](https://github.com/MystenLabs/walrus) HTTP API. Walrus is a decentralized storage system built on the Sui blockchain, allowing you to store and retrieve blobs efficiently.
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Getting Started](#getting-started)
+    - [Initializing the Client](#initializing-the-client)
+    - [Storing Data](#storing-data)
+    - [Retrieving Data](#retrieving-data)
+    - [Storing and Retrieving Files](#storing-and-retrieving-files)
+- [API Reference](#api-reference)
+    - [Client](#client)
+    - [StoreOptions](#storeoptions)
+    - [Methods](#methods)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Features
+
+- Store data and files on the Walrus Publisher.
+- Retrieve data and files from the Walrus Aggregator.
+- Supports specifying storage epochs.
+- Handles response parsing and error handling.
+
+## Installation
+
+To install the **walrus-go** SDK, use `go get`:
+
+```bash
+go get github.com/suiet/walrus-go
+```
+
+Replace `github.com/suiet/walrus-go` with the actual import path of your module.
+
+## Getting Started
+
+Below is a guide to help you start using the **walrus-go** SDK in your Go projects.
+
+### Initializing the Client
+
+First, import the `walrus` package and create a new client instance:
+
+```go
+package main
+
+import (
+    "github.com/suiet/walrus-go"
+)
+
+func main() {
+    client := walrus.NewClient(
+        "https://aggregator.walrus-testnet.walrus.space",
+        "https://publisher.walrus-testnet.walrus.space",
+    )
+
+    // Your code here
+}
+```
+
+Replace the URLs with the aggregator and publisher endpoints you wish to use.
+
+### Storing Data
+
+You can store data on the Walrus Publisher using the `Store` method:
+
+```go
+data := []byte("some string")
+blobID, err := client.Store(data, &walrus.StoreOptions{Epochs: 1})
+if err != nil {
+    log.Fatalf("Error storing data: %v", err)
+}
+fmt.Printf("Stored blob ID: %s\n", blobID)
+```
+
+### Retrieving Data
+
+Retrieve the stored data using the `Read` method:
+
+```go
+retrievedData, err := client.Read(blobID)
+if err != nil {
+    log.Fatalf("Error reading data: %v", err)
+}
+fmt.Printf("Retrieved data: %s\n", string(retrievedData))
+```
+
+### Storing and Retrieving Files
+
+Store a file on the Walrus Publisher:
+
+```go
+fileBlobID, err := client.StoreFile("path/to/your/file.txt", &walrus.StoreOptions{Epochs: 5})
+if err != nil {
+    log.Fatalf("Error storing file: %v", err)
+}
+fmt.Printf("Stored file blob ID: %s\n", fileBlobID)
+```
+
+Retrieve the file and save it locally:
+
+```go
+err = client.ReadToFile(fileBlobID, "path/to/save/file.txt")
+if err != nil {
+    log.Fatalf("Error reading file: %v", err)
+}
+fmt.Println("File retrieved successfully")
+```
+
+## API Reference
+
+### Client
+
+The `Client` struct is used to interact with the Walrus API.
+
+#### Fields
+
+- `AggregatorURL string`: The base URL of the Walrus Aggregator.
+- `PublisherURL string`: The base URL of the Walrus Publisher.
+- `httpClient *http.Client`: The HTTP client used for requests.
+
+#### NewClient
+
+Creates a new `Client` instance.
+
+```go
+func NewClient(aggregatorURL, publisherURL string) *Client
+```
+
+**Parameters:**
+
+- `aggregatorURL string`: The aggregator's base URL.
+- `publisherURL string`: The publisher's base URL.
+
+### StoreOptions
+
+Options for storing data.
+
+#### Fields
+
+- `Epochs int`: Number of storage epochs. Determines how long the data is stored.
+
+### Methods
+
+#### Store
+
+Stores data on the Walrus Publisher.
+
+```go
+func (c *Client) Store(data []byte, opts *StoreOptions) (string, error)
+```
+
+**Parameters:**
+
+- `data []byte`: The data to store.
+- `opts *StoreOptions`: Storage options, such as the number of epochs.
+
+**Returns:**
+
+- `string`: The blob ID of the stored data.
+- `error`: Error if the operation fails.
+
+#### StoreFile
+
+Stores a file on the Walrus Publisher.
+
+```go
+func (c *Client) StoreFile(filePath string, opts *StoreOptions) (string, error)
+```
+
+**Parameters:**
+
+- `filePath string`: Path to the file to store.
+- `opts *StoreOptions`: Storage options.
+
+**Returns:**
+
+- `string`: The blob ID of the stored file.
+- `error`: Error if the operation fails.
+
+#### Read
+
+Retrieves data from the Walrus Aggregator.
+
+```go
+func (c *Client) Read(blobID string) ([]byte, error)
+```
+
+**Parameters:**
+
+- `blobID string`: The blob ID of the data to retrieve.
+
+**Returns:**
+
+- `[]byte`: The retrieved data.
+- `error`: Error if the operation fails.
+
+#### ReadToFile
+
+Retrieves data and saves it to a file.
+
+```go
+func (c *Client) ReadToFile(blobID, filePath string) error
+```
+
+**Parameters:**
+
+- `blobID string`: The blob ID of the data to retrieve.
+- `filePath string`: Path to save the retrieved file.
+
+**Returns:**
+
+- `error`: Error if the operation fails.
+
+#### GetAPISpec
+
+Retrieves the API specification from the aggregator or publisher.
+
+```go
+func (c *Client) GetAPISpec(isAggregator bool) ([]byte, error)
+```
+
+**Parameters:**
+
+- `isAggregator bool`: Set to `true` to get the aggregator's API spec; `false` for the publisher.
+
+**Returns:**
+
+- `[]byte`: The API specification data.
+- `error`: Error if the operation fails.
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request on GitHub.
+
+1. Fork the repository.
+2. Create a new branch (`git checkout -b feature/your-feature`).
+3. Commit your changes (`git commit -am 'Add new feature'`).
+4. Push to the branch (`git push origin feature/your-feature`).
+5. Open a pull request.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+# Contact
+
+For any questions or support, please open an issue on the GitHub repository.
+
+---
+
+*Note: Replace `github.com/suiet/walrus-go` with the actual URL of your GitHub repository or module path.*
