@@ -1,14 +1,14 @@
 package walrus_go
 
 import (
-    "bytes"
-    "encoding/json"
-    "fmt"
-    "io"
-    "net/http"
-    "net/url"
-    "os"
-    "strconv"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
 )
 
 // Client is a client for interacting with the Walrus API
@@ -93,6 +93,14 @@ type StorageInfo struct {
     StartEpoch  int    `json:"startEpoch"`
     EndEpoch    int    `json:"endEpoch"`
     StorageSize int    `json:"storageSize"`
+}
+
+// BlobMetadata represents the metadata information returned by Head request
+type BlobMetadata struct {
+    ContentLength    int64             `json:"content-length"`
+    ContentType     string            `json:"content-type"`
+    LastModified    string            `json:"last-modified"`
+    ETag            string            `json:"etag"`
 }
 
 // Store stores data on the Walrus Publisher and returns the complete store response
@@ -279,4 +287,33 @@ func (c *Client) GetAPISpec(isAggregator bool) ([]byte, error) {
     }
 
     return io.ReadAll(resp.Body)
+}
+
+// Head retrieves blob metadata from the Walrus Aggregator without downloading the content
+func (c *Client) Head(blobID string) (*BlobMetadata, error) {
+    urlStr := fmt.Sprintf("%s/v1/%s", c.AggregatorURL, url.PathEscape(blobID))
+
+    req, err := http.NewRequest(http.MethodHead, urlStr, nil)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create HEAD request: %w", err)
+    }
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("failed to get blob metadata: status code %d", resp.StatusCode)
+    }
+
+    metadata := &BlobMetadata{
+        ContentLength: resp.ContentLength,
+        ContentType:  resp.Header.Get("Content-Type"),
+        LastModified: resp.Header.Get("Last-Modified"),
+        ETag:         resp.Header.Get("ETag"),
+    }
+
+    return metadata, nil
 }

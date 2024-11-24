@@ -7,14 +7,22 @@ The **walrus-go** SDK provides a Go client for interacting with the [Walrus](htt
 - [Features](#features)
 - [Installation](#installation)
 - [Getting Started](#getting-started)
-    - [Initializing the Client](#initializing-the-client)
-    - [Storing Data](#storing-data)
-    - [Retrieving Data](#retrieving-data)
-    - [Storing and Retrieving Files](#storing-and-retrieving-files)
+  - [Initializing the Client](#initializing-the-client)
+  - [Storing Data](#storing-data)
+  - [Retrieving Data](#retrieving-data)
+  - [Storing and Retrieving Files](#storing-and-retrieving-files)
 - [API Reference](#api-reference)
-    - [Client](#client)
-    - [StoreOptions](#storeoptions)
-    - [Methods](#methods)
+  - [Client](#client)
+  - [StoreOptions](#storeoptions)
+  - [Methods](#methods)
+    - [Store](#store)
+    - [StoreReader](#storereader)
+    - [StoreFromURL](#storefromurl)
+    - [StoreFile](#storefile)
+    - [Head](#head)
+    - [Read](#read)
+    - [ReadToFile](#readtofile)
+    - [GetAPISpec](#getapispec)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -61,6 +69,7 @@ func main() {
 ```
 
 Replace the URLs with the aggregator and publisher endpoints you wish to use.
+
 ### Storing Data
 
 You can store data on the Walrus Publisher using the `Store` method:
@@ -75,11 +84,11 @@ if err != nil {
 // Check response type and handle accordingly
 if resp.NewlyCreated != nil {
     blobID := resp.NewlyCreated.BlobObject.BlobID
-    fmt.Printf("Stored new blob ID: %s with cost: %d\n", 
+    fmt.Printf("Stored new blob ID: %s with cost: %d\n",
         blobID, resp.NewlyCreated.Cost)
 } else if resp.AlreadyCertified != nil {
     blobID := resp.AlreadyCertified.BlobID
-    fmt.Printf("Blob already exists with ID: %s, end epoch: %d\n", 
+    fmt.Printf("Blob already exists with ID: %s, end epoch: %d\n",
         blobID, resp.AlreadyCertified.EndEpoch)
 }
 ```
@@ -95,10 +104,12 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error)
 ```
 
 **Parameters:**
+
 - `data []byte`: The data to store.
 - `opts *StoreOptions`: Storage options, such as the number of epochs.
 
 **Returns:**
+
 - `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
@@ -111,11 +122,13 @@ func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreO
 ```
 
 **Parameters:**
+
 - `reader io.Reader`: The source to read data from.
 - `contentLength int64`: The total size of the data to be stored. Use -1 if unknown.
 - `opts *StoreOptions`: Storage options, such as the number of epochs.
 
 **Returns:**
+
 - `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
@@ -128,10 +141,12 @@ func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (*StoreRespo
 ```
 
 **Parameters:**
+
 - `sourceURL string`: The URL to download content from.
 - `opts *StoreOptions`: Storage options, such as the number of epochs.
 
 **Returns:**
+
 - `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
@@ -144,13 +159,47 @@ func (c *Client) StoreFile(filePath string, opts *StoreOptions) (*StoreResponse,
 ```
 
 **Parameters:**
+
 - `filePath string`: Path to the file to store.
 - `opts *StoreOptions`: Storage options.
 
 **Returns:**
+
 - `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
+#### Head
+
+Retrieves blob metadata from the Walrus Aggregator without downloading the content.
+
+```go
+func (c *Client) Head(blobID string) (*BlobMetadata, error)
+```
+
+**Parameters:**
+
+- `blobID string`: The blob ID to get metadata for.
+
+**Returns:**
+
+- `*BlobMetadata`: Contains metadata information including:
+  - `ContentLength`: Size of the blob in bytes
+  - `ContentType`: MIME type of the content
+  - `LastModified`: Last modification timestamp
+  - `ETag`: Entity tag for cache validation
+- `error`: Error if the operation fails.
+
+**Example:**
+
+```go
+metadata, err := client.Head("your-blob-id")
+if err != nil {
+    log.Fatalf("Error getting metadata: %v", err)
+}
+fmt.Printf("Blob size: %d bytes\n", metadata.ContentLength)
+fmt.Printf("Content type: %s\n", metadata.ContentType)
+fmt.Printf("Last modified: %s\n", metadata.LastModified)
+```
 
 ### Retrieving Data
 
