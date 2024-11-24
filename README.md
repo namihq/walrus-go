@@ -75,6 +75,43 @@ if err != nil {
 fmt.Printf("Stored blob ID: %s\n", blobID)
 ```
 
+#### StoreReader
+
+Stores data from an io.Reader on the Walrus Publisher.
+
+```go
+func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreOptions) (string, error)
+```
+
+**Parameters:**
+
+- `reader io.Reader`: The source to read data from.
+- `contentLength int64`: The total size of the data to be stored. Use -1 if unknown.
+- `opts *StoreOptions`: Storage options, such as the number of epochs.
+
+**Returns:**
+
+- `string`: The blob ID of the stored data.
+- `error`: Error if the operation fails.
+
+#### StoreFromURL
+
+Downloads and stores content from a URL on the Walrus Publisher.
+
+```go
+func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (string, error)
+```
+
+**Parameters:**
+
+- `sourceURL string`: The URL to download content from.
+- `opts *StoreOptions`: Storage options, such as the number of epochs.
+
+**Returns:**
+
+- `string`: The blob ID of the stored content.
+- `error`: Error if the operation fails.
+
 ### Retrieving Data
 
 Retrieve the stored data using the `Read` method:

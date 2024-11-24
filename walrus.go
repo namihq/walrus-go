@@ -117,6 +117,86 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (string, error) {
     return "", fmt.Errorf("unexpected response: %s", string(respData))
 }
 
+// StoreReader stores data from an io.Reader on the Walrus Publisher and returns the blob ID.
+// The contentLength parameter specifies the total size of the data to be stored.
+// If contentLength is unknown, set it to -1 and the request will be sent without Content-Length header.
+func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreOptions) (string, error) {
+    // Prepare the URL
+    urlStr := fmt.Sprintf("%s/v1/store", c.PublisherURL)
+    if opts != nil && opts.Epochs > 0 {
+        urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
+    }
+
+    // Create new request with the reader as body
+    req, err := http.NewRequest("PUT", urlStr, reader)
+    if err != nil {
+        return "", err
+    }
+
+    // Set headers
+    req.Header.Set("Content-Type", "application/octet-stream")
+    if contentLength >= 0 {
+        req.ContentLength = contentLength
+    }
+
+    // Send the request
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return "", err
+    }
+    defer resp.Body.Close()
+
+    // Read and parse the response
+    respData, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return "", err
+    }
+
+    // Check for HTTP errors
+    if resp.StatusCode != http.StatusOK {
+        return "", fmt.Errorf("failed to store data: %s", string(respData))
+    }
+
+    // Try to parse as NewlyCreatedResponse
+    var newResp NewlyCreatedResponse
+    if err := json.Unmarshal(respData, &newResp); err == nil && newResp.NewlyCreated.BlobObject.BlobID != "" {
+        return newResp.NewlyCreated.BlobObject.BlobID, nil
+    }
+
+    // Try to parse as AlreadyCertifiedResponse
+    var certResp AlreadyCertifiedResponse
+    if err := json.Unmarshal(respData, &certResp); err == nil && certResp.AlreadyCertified.BlobID != "" {
+        return certResp.AlreadyCertified.BlobID, nil
+    }
+
+    return "", fmt.Errorf("unexpected response: %s", string(respData))
+}
+
+// StoreFromURL downloads content from the provided URL and stores it on the Walrus Publisher.
+// It returns the blob ID of the stored content.
+func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (string, error) {
+    // Create HTTP request to download the content
+    req, err := http.NewRequest("GET", sourceURL, nil)
+    if err != nil {
+        return "", fmt.Errorf("failed to create request: %w", err)
+    }
+
+    // Send the request
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return "", fmt.Errorf("failed to download from URL: %w", err)
+    }
+    defer resp.Body.Close()
+
+    // Check if the download was successful
+    if resp.StatusCode != http.StatusOK {
+        return "", fmt.Errorf("failed to download from URL, status code: %d", resp.StatusCode)
+    }
+
+    // Use StoreReader to upload the content
+    return c.StoreReader(resp.Body, resp.ContentLength, opts)
+}
+
 // StoreFile stores a file on the Walrus Publisher and returns the blob ID
 func (c *Client) StoreFile(filePath string, opts *StoreOptions) (string, error) {
     // Open the file
