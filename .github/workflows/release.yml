@@ -10,8 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Publish release
         uses: ghalactic/github-release-from-tag@v5
+        with:
+          prerelease: "false"
+          generateReleaseNotes: "true"
