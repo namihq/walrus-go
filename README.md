@@ -23,6 +23,7 @@ The **walrus-go** SDK provides a Go client for interacting with the [Walrus](htt
     - [Read](#read)
     - [ReadToFile](#readtofile)
     - [GetAPISpec](#getapispec)
+    - [ReadToReader](#readtoreader)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -235,6 +236,39 @@ if err != nil {
 fmt.Println("File retrieved successfully")
 ```
 
+### ReadToReader
+
+Retrieves a blob and returns an io.ReadCloser for streaming the content.
+
+```go
+func (c *Client) ReadToReader(blobID string) (io.ReadCloser, error)
+```
+
+**Parameters:**
+
+- `blobID string`: The blob ID to retrieve.
+
+**Returns:**
+
+- `io.ReadCloser`: A reader containing the blob content. Remember to close it after use.
+- `error`: Error if the operation fails.
+
+**Example:**
+
+```go
+reader, err := client.ReadToReader("your-blob-id")
+if err != nil {
+    log.Fatalf("Error getting reader: %v", err)
+}
+defer reader.Close()
+
+// Use the reader as needed
+_, err = io.Copy(os.Stdout, reader)
+if err != nil {
+    log.Fatalf("Error reading content: %v", err)
+}
+```
+
 ## API Reference
 
 ### Client
@@ -356,6 +390,39 @@ func (c *Client) GetAPISpec(isAggregator bool) ([]byte, error)
 
 - `[]byte`: The API specification data.
 - `error`: Error if the operation fails.
+
+#### ReadToReader
+
+Retrieves a blob and returns an io.ReadCloser for streaming the content.
+
+```go
+func (c *Client) ReadToReader(blobID string) (io.ReadCloser, error)
+```
+
+**Parameters:**
+
+- `blobID string`: The blob ID to retrieve.
+
+**Returns:**
+
+- `io.ReadCloser`: A reader containing the blob content. Remember to close it after use.
+- `error`: Error if the operation fails.
+
+**Example:**
+
+```go
+reader, err := client.ReadToReader("your-blob-id")
+if err != nil {
+    log.Fatalf("Error getting reader: %v", err)
+}
+defer reader.Close()
+
+// Use the reader as needed
+_, err = io.Copy(os.Stdout, reader)
+if err != nil {
+    log.Fatalf("Error reading content: %v", err)
+}
+```
 
 ## Contributing
 

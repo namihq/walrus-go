@@ -317,3 +317,21 @@ func (c *Client) Head(blobID string) (*BlobMetadata, error) {
 
     return metadata, nil
 }
+
+// ReadToReader retrieves a blob and writes it to the provided io.Writer
+func (c *Client) ReadToReader(blobID string) (io.ReadCloser, error) {
+    urlStr := fmt.Sprintf("%s/v1/%s", c.AggregatorURL, url.PathEscape(blobID))
+
+    resp, err := c.httpClient.Get(urlStr)
+    if err != nil {
+        return nil, err
+    }
+
+    if resp.StatusCode != http.StatusOK {
+        resp.Body.Close()
+        respData, _ := io.ReadAll(resp.Body)
+        return nil, fmt.Errorf("failed to read blob: %s", string(respData))
+    }
+
+    return resp.Body, nil
+}
