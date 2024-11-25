@@ -133,9 +133,11 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error) 
     }
 
     var storeResp StoreResponse
+
     if err := json.Unmarshal(respData, &storeResp); err != nil {
         return nil, fmt.Errorf("failed to parse response: %w", err)
     }
+    storeResp.NormalizeBlobResponse()
 
     return &storeResp, nil
 }
@@ -176,7 +178,7 @@ func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreO
     if err := json.Unmarshal(respData, &storeResp); err != nil {
         return nil, fmt.Errorf("failed to parse response: %w", err)
     }
-
+    storeResp.NormalizeBlobResponse()
     return &storeResp, nil
 }
 
