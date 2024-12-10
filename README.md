@@ -16,7 +16,7 @@ The **walrus-go** SDK provides a Go client for interacting with the [Walrus](htt
   - [StoreOptions](#storeoptions)
   - [Methods](#methods)
     - [Store](#store)
-    - [StoreReader](#storereader)
+    - [StoreFromReader](#StoreFromReader)
     - [StoreFromURL](#storefromurl)
     - [StoreFile](#storefile)
     - [Head](#head)
@@ -60,16 +60,25 @@ import (
 )
 
 func main() {
+    // Create client with default testnet endpoints
+    client := walrus.NewClient()
+
+    // Or customize with specific options
     client := walrus.NewClient(
-        "https://aggregator.walrus-testnet.walrus.space",
-        "https://publisher.walrus-testnet.walrus.space",
+        walrus.WithAggregatorURLs([]string{"https://custom-aggregator.example.com"}),
+        walrus.WithPublisherURLs([]string{"https://custom-publisher.example.com"}),
+        walrus.WithHTTPClient(customHTTPClient),
     )
 
     // Your code here
 }
 ```
 
-Replace the URLs with the aggregator and publisher endpoints you wish to use.
+By default, the client uses testnet endpoints. You can customize the client using the following options:
+
+- `WithAggregatorURLs(urls []string)`: Set custom aggregator URLs
+- `WithPublisherURLs(urls []string)`: Set custom publisher URLs
+- `WithHTTPClient(client *http.Client)`: Set a custom HTTP client
 
 ### Storing Data
 
@@ -114,12 +123,12 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error)
 - `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
-#### StoreReader
+#### StoreFromReader
 
 Stores data from an io.Reader on the Walrus Publisher.
 
 ```go
-func (c *Client) StoreReader(reader io.Reader, contentLength int64, opts *StoreOptions) (*StoreResponse, error)
+func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *StoreOptions) (*StoreResponse, error)
 ```
 
 **Parameters:**
@@ -277,22 +286,40 @@ The `Client` struct is used to interact with the Walrus API.
 
 #### Fields
 
-- `AggregatorURL string`: The base URL of the Walrus Aggregator.
-- `PublisherURL string`: The base URL of the Walrus Publisher.
-- `httpClient *http.Client`: The HTTP client used for requests.
+- `AggregatorURL []string`: The base URLs of the Walrus Aggregators
+- `PublisherURL []string`: The base URLs of the Walrus Publishers
+- `httpClient *http.Client`: The HTTP client used for requests
 
 #### NewClient
 
-Creates a new `Client` instance.
+Creates a new `Client` instance with optional configuration.
 
 ```go
-func NewClient(aggregatorURL, publisherURL string) *Client
+func NewClient(opts ...ClientOption) *Client
 ```
 
 **Parameters:**
 
-- `aggregatorURL string`: The aggregator's base URL.
-- `publisherURL string`: The publisher's base URL.
+- `opts ...ClientOption`: Optional configuration functions
+
+**Available Options:**
+
+- `WithAggregatorURLs(urls []string)`: Set custom aggregator URLs
+- `WithPublisherURLs(urls []string)`: Set custom publisher URLs
+- `WithHTTPClient(client *http.Client)`: Set a custom HTTP client
+
+**Example:**
+
+```go
+// Use default testnet endpoints
+client := walrus.NewClient()
+
+// Customize specific options
+client := walrus.NewClient(
+    // optional: walrus.WithAggregatorURLs([]string{"https://custom-aggregator.example.com"}),
+    // optional: walrus.WithPublisherURLs([]string{"https://custom-publisher.example.com"}),
+)
+```
 
 ### StoreOptions
 
