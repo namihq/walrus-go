@@ -434,7 +434,6 @@ func (c *Client) doWithRetry(req *http.Request, urls []string) (*http.Response, 
 			newReq := &http.Request{}
 			*newReq = *req
 			if req.Body != nil {
-				// If there's a body, we need to create a new ReadCloser for each attempt
 				bodyBytes, err := io.ReadAll(req.Body)
 				if err != nil {
 					return nil, fmt.Errorf("failed to read request body: %w", err)
@@ -452,8 +451,14 @@ func (c *Client) doWithRetry(req *http.Request, urls []string) (*http.Response, 
 			if err != nil {
 				lastErr = err
 			} else {
+				// Try to read error message from response body
+				errBody, readErr := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				lastErr = fmt.Errorf("request failed with status code: %d", resp.StatusCode)
+				if readErr == nil && len(errBody) > 0 {
+					lastErr = fmt.Errorf("request failed with status code %d: %s", resp.StatusCode, string(errBody))
+				} else {
+					lastErr = fmt.Errorf("request failed with status code %d", resp.StatusCode)
+				}
 			}
 
 			// If this was the last attempt for this URL, don't sleep
