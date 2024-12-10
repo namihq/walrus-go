@@ -24,6 +24,13 @@ type Client struct {
 	PublisherURL  []string
 	httpClient    *http.Client
 	retryConfig   RetryConfig // Add retry configuration
+	// MaxUnknownLengthUploadSize specifies the maximum allowed size in bytes for uploads 
+	// when the content length is not known in advance (i.e., contentLength <= 0).
+	// In such cases, the entire content must be read into memory to determine its size,
+	// which could potentially cause memory issues with very large uploads.
+	// This limit helps prevent memory exhaustion in those scenarios.
+	// Default is 5MB.
+	MaxUnknownLengthUploadSize int64
 }
 
 // ClientOption defines a function type that modifies Client options
@@ -66,6 +73,19 @@ func WithRetryConfig(maxRetries int, retryDelay time.Duration) ClientOption {
 	}
 }
 
+// WithMaxUnknownLengthUploadSize sets the maximum allowed size for uploads when content length
+// is not known in advance (contentLength <= 0). This applies only when uploading from a reader
+// that doesn't provide size information, requiring the entire content to be read into memory first.
+// This limit helps prevent potential memory exhaustion in such cases.
+// Default is 5MB.
+func WithMaxUnknownLengthUploadSize(maxSize int64) ClientOption {
+	return func(c *Client) {
+		if maxSize > 0 {
+			c.MaxUnknownLengthUploadSize = maxSize
+		}
+	}
+}
+
 // NewClient creates a new Walrus client with the specified options
 func NewClient(opts ...ClientOption) *Client {
 	// Create client with default values
@@ -77,11 +97,12 @@ func NewClient(opts ...ClientOption) *Client {
 			MaxRetries: 5,                      // Default to 5 retries
 			RetryDelay: 500 * time.Millisecond, // Default to 500ms delay
 		},
+		MaxUnknownLengthUploadSize: 5 * 1024 * 1024, // Default to 5MB
 	}
 
 	// Apply all options
 	for _, opt := range opts {
-		opt(client)
+		 opt(client)
 	}
 
 	return client
@@ -204,15 +225,31 @@ func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *St
 		urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
 	}
 
+	var content []byte
+	var err error
+	
+	// If content length is unknown, read all content first
+	if contentLength <= 0 {
+		content, err = io.ReadAll(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read content: %w", err)
+		}
+		contentLength = int64(len(content))
+		if contentLength > c.MaxUnknownLengthUploadSize {
+			return nil, fmt.Errorf("content length %d bytes exceeds maximum allowed size of %d bytes for uploads with unknown length", 
+				contentLength, c.MaxUnknownLengthUploadSize)
+		}
+		reader = bytes.NewReader(content)
+	}
+
+	// Create request with the proper reader
 	req, err := http.NewRequest("PUT", urlStr, reader)
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/octet-stream")
-	if contentLength >= 0 {
-		req.ContentLength = contentLength
-	}
+	req.ContentLength = contentLength
 
 	resp, err := c.doWithRetry(req, c.PublisherURL)
 	if err != nil {
