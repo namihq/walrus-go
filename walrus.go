@@ -419,53 +419,59 @@ func (c *Client) ReadToReader(blobID string) (io.ReadCloser, error) {
 // doWithRetry performs an HTTP request with retry logic
 func (c *Client) doWithRetry(req *http.Request, urls []string) (*http.Response, error) {
 	var lastErr error
+	// Calculate total attempts based on retry config and URL count
+	totalAttempts := c.retryConfig.MaxRetries + 1
+	attemptCount := 0
 
-	// Try each URL in the list
-	for _, baseURL := range urls {
+	// Try URLs in round-robin fashion until max retries reached
+	for attemptCount < totalAttempts {
+		// Get URL index for this attempt
+		urlIndex := attemptCount % len(urls)
+		baseURL := urls[urlIndex]
+
 		// Update request URL with current base URL
 		req.URL.Host = ""
 		req.URL.Scheme = ""
 		fullURL := baseURL + req.URL.String()
 		req.URL, _ = url.Parse(fullURL)
 
-		// Try with retries for current URL
-		for attempt := 0; attempt <= c.retryConfig.MaxRetries; attempt++ {
-			// Create a new request for each attempt (as the original might have been used)
-			newReq := &http.Request{}
-			*newReq = *req
-			if req.Body != nil {
-				bodyBytes, err := io.ReadAll(req.Body)
-				if err != nil {
-					return nil, fmt.Errorf("failed to read request body: %w", err)
-				}
-				req.Body.Close()
-				newReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-			}
-
-			resp, err := c.httpClient.Do(newReq)
-			if err == nil && resp.StatusCode == http.StatusOK {
-				return resp, nil
-			}
-
+		// Create a new request for this attempt
+		newReq := &http.Request{}
+		*newReq = *req
+		if req.Body != nil {
+			bodyBytes, err := io.ReadAll(req.Body)
 			if err != nil {
-				lastErr = err
-			} else {
-				// Try to read error message from response body
-				errBody, readErr := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				if readErr == nil && len(errBody) > 0 {
-					lastErr = fmt.Errorf("request failed with status code %d: %s", resp.StatusCode, string(errBody))
-				} else {
-					lastErr = fmt.Errorf("request failed with status code %d", resp.StatusCode)
-				}
+				return nil, fmt.Errorf("failed to read request body: %w", err)
 			}
+			req.Body.Close()
+			newReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
 
-			// If this was the last attempt for this URL, don't sleep
-			if attempt < c.retryConfig.MaxRetries {
-				time.Sleep(c.retryConfig.RetryDelay)
+		resp, err := c.httpClient.Do(newReq)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+
+		if err != nil {
+			lastErr = err
+		} else {
+			// Try to read error message from response body
+			errBody, readErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if readErr == nil && len(errBody) > 0 {
+				lastErr = fmt.Errorf("request failed with status code %d: %s", resp.StatusCode, string(errBody))
+			} else {
+				lastErr = fmt.Errorf("request failed with status code %d", resp.StatusCode)
 			}
 		}
+
+		// Sleep before next attempt if not the last attempt
+		if attemptCount < totalAttempts-1 {
+			time.Sleep(c.retryConfig.RetryDelay)
+		}
+
+		attemptCount++
 	}
 
 	return nil, fmt.Errorf("all retry attempts failed: %w", lastErr)
