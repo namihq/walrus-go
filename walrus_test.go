@@ -65,6 +65,22 @@ func TestStoreFromReader(t *testing.T) {
 	}
 }
 
+// TestStoreFromReaderWihoutContentLength tests storing data from a reader
+func TestStoreFromReaderWihoutContentLength(t *testing.T) {
+	client := newTestClient(t)
+	reader := strings.NewReader(testContent)
+
+	resp, err := client.StoreFromReader(reader, -1, &StoreOptions{Epochs: 1})
+	if err != nil {
+		t.Fatalf("Failed to store data from reader: %v", err)
+	}
+
+	resp.NormalizeBlobResponse()
+	if resp.Blob.BlobID == "" {
+		t.Error("StoreFromReader operation failed: received empty blob ID in response")
+	}
+}
+
 // TestStoreFromURL tests storing data from a URL
 func TestStoreFromURL(t *testing.T) {
 	client := newTestClient(t)
