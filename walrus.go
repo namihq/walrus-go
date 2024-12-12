@@ -244,28 +244,13 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error) 
 }
 
 // StoreFromReader stores data from an io.Reader and returns the complete store response
-func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *StoreOptions) (*StoreResponse, error) {
+func (c *Client) StoreFromReader(reader io.Reader, opts *StoreOptions) (*StoreResponse, error) {
 	urlStr := "/v1/store"
 	if opts != nil && opts.Epochs > 0 {
 		urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
 	}
 
-	var content []byte
 	var err error
-	
-	// If content length is unknown or encryption is enabled, read all content first
-	if contentLength <= 0 || (opts != nil && opts.Encryption != nil) {
-		content, err = io.ReadAll(reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read content: %w", err)
-		}
-		contentLength = int64(len(content))
-		if contentLength > c.MaxUnknownLengthUploadSize {
-			return nil, fmt.Errorf("content length %d bytes exceeds maximum allowed size of %d bytes", 
-				contentLength, c.MaxUnknownLengthUploadSize)
-		}
-		reader = bytes.NewReader(content)
-	}
 
 	// If encryption is enabled
 	if opts != nil && opts.Encryption != nil {
@@ -274,7 +259,6 @@ func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *St
 			return nil, fmt.Errorf("failed to encrypt data: %w", err)
 		}
 		reader = &buf
-		contentLength = int64(buf.Len())
 	}
 
 	// Create request with the proper reader
@@ -284,7 +268,6 @@ func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *St
 	}
 
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.ContentLength = contentLength
 
 	resp, err := c.doWithRetry(req, c.PublisherURL)
 	if err != nil {
@@ -322,7 +305,7 @@ func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (*StoreRespo
 		return nil, fmt.Errorf("failed to download from URL %s: HTTP request returned status code %d, expected 200 OK", sourceURL, resp.StatusCode)
 	}
 
-	return c.StoreFromReader(resp.Body, resp.ContentLength, opts)
+	return c.StoreFromReader(resp.Body, opts)
 }
 
 // StoreFile stores a file and returns the complete store response
@@ -333,12 +316,7 @@ func (c *Client) StoreFile(filePath string, opts *StoreOptions) (*StoreResponse,
 	}
 	defer file.Close()
 
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-
-	return c.StoreFromReader(file, stat.Size(), opts)
+	return c.StoreFromReader(file, opts)
 }
 
 // Read retrieves a blob from the Walrus Aggregator

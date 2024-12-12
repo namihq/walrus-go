@@ -58,7 +58,7 @@ func TestStoreFromReader(t *testing.T) {
 	client := newTestClient(t)
 	reader := strings.NewReader(testContent)
 
-	resp, err := client.StoreFromReader(reader, int64(len(testContent)), &StoreOptions{Epochs: 1})
+	resp, err := client.StoreFromReader(reader, &StoreOptions{Epochs: 1})
 	if err != nil {
 		t.Fatalf("Failed to store data from reader: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestStoreFromReaderWihoutContentLength(t *testing.T) {
 	client := newTestClient(t)
 	reader := strings.NewReader(testContent)
 
-	resp, err := client.StoreFromReader(reader, -1, &StoreOptions{Epochs: 1})
+	resp, err := client.StoreFromReader(reader, &StoreOptions{Epochs: 1})
 	if err != nil {
 		t.Fatalf("Failed to store data from reader: %v", err)
 	}
@@ -599,7 +599,7 @@ func TestEncryptionWithReader(t *testing.T) {
 	}
 
 	reader := bytes.NewReader(testData)
-	resp, err := client.StoreFromReader(reader, int64(len(testData)), storeOpts)
+	resp, err := client.StoreFromReader(reader, storeOpts)
 	if err != nil {
 		t.Fatalf("Failed to store encrypted data from reader: %v", err)
 	}
