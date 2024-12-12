@@ -32,6 +32,7 @@ The **walrus-go** SDK provides a Go client for interacting with the [Walrus](htt
 - Store data and files on the Walrus Publisher.
 - Retrieve data and files from the Walrus Aggregator.
 - Supports specifying storage epochs.
+- Supports end-to-end encryption using AES-CTR.
 - Handles response parsing and error handling.
 
 ## Installation
@@ -85,8 +86,19 @@ By default, the client uses testnet endpoints. You can customize the client usin
 You can store data on the Walrus Publisher using the `Store` method:
 
 ```go
+// Store without encryption
 data := []byte("some string")
 resp, err := client.Store(data, &walrus.StoreOptions{Epochs: 1})
+
+// Store with encryption
+key := []byte("your-32-byte-encryption-key-here") // AES-256 key
+resp, err := client.Store(data, &walrus.StoreOptions{
+    Epochs: 1,
+    Encryption: &walrus.EncryptionOptions{
+        Key: key,
+    },
+})
+
 if err != nil {
     log.Fatalf("Error storing data: %v", err)
 }
@@ -116,7 +128,9 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error)
 **Parameters:**
 
 - `data []byte`: The data to store.
-- `opts *StoreOptions`: Storage options, such as the number of epochs.
+- `opts *StoreOptions`: Storage options, including:
+  - Number of epochs
+  - Encryption configuration (optional)
 
 **Returns:**
 
@@ -216,7 +230,17 @@ fmt.Printf("Last modified: %s\n", metadata.LastModified)
 Retrieve the stored data using the `Read` method:
 
 ```go
-retrievedData, err := client.Read(blobID)
+// Read without decryption
+retrievedData, err := client.Read(blobID, nil)
+
+// Read with decryption (use the same key used for encryption)
+key := []byte("your-32-byte-encryption-key-here")
+retrievedData, err := client.Read(blobID, &walrus.ReadOptions{
+    Encryption: &walrus.EncryptionOptions{
+        Key: key,
+    },
+})
+
 if err != nil {
     log.Fatalf("Error reading data: %v", err)
 }
@@ -328,25 +352,36 @@ Options for storing data.
 #### Fields
 
 - `Epochs int`: Number of storage epochs. Determines how long the data is stored.
+- `Encryption *EncryptionOptions`: Optional encryption configuration. If provided, data will be encrypted before storage.
+
+### ReadOptions
+
+Options for reading data.
+
+#### Fields
+
+- `Encryption *EncryptionOptions`: Optional decryption configuration. Must be provided with the same key used for encryption to successfully decrypt the data.
 
 ### Methods
 
 #### Store
 
-Stores data on the Walrus Publisher.
+Stores data on the Walrus Publisher and returns detailed response information.
 
 ```go
-func (c *Client) Store(data []byte, opts *StoreOptions) (string, error)
+func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error)
 ```
 
 **Parameters:**
 
 - `data []byte`: The data to store.
-- `opts *StoreOptions`: Storage options, such as the number of epochs.
+- `opts *StoreOptions`: Storage options, including:
+  - Number of epochs
+  - Encryption configuration (optional)
 
 **Returns:**
 
-- `string`: The blob ID of the stored data.
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
 #### StoreFile
@@ -372,16 +407,18 @@ func (c *Client) StoreFile(filePath string, opts *StoreOptions) (string, error)
 Retrieves data from the Walrus Aggregator.
 
 ```go
-func (c *Client) Read(blobID string) ([]byte, error)
+func (c *Client) Read(blobID string, opts *ReadOptions) ([]byte, error)
 ```
 
 **Parameters:**
 
 - `blobID string`: The blob ID of the data to retrieve.
+- `opts *ReadOptions`: Read options, including:
+  - Decryption configuration (optional, must match encryption key if data was encrypted)
 
 **Returns:**
 
-- `[]byte`: The retrieved data.
+- `[]byte`: The retrieved data (decrypted if encryption options were provided).
 - `error`: Error if the operation fails.
 
 #### ReadToFile
@@ -389,13 +426,15 @@ func (c *Client) Read(blobID string) ([]byte, error)
 Retrieves data and saves it to a file.
 
 ```go
-func (c *Client) ReadToFile(blobID, filePath string) error
+func (c *Client) ReadToFile(blobID, filePath string, opts *ReadOptions) error
 ```
 
 **Parameters:**
 
 - `blobID string`: The blob ID of the data to retrieve.
 - `filePath string`: Path to save the retrieved file.
+- `opts *ReadOptions`: Read options, including:
+  - Decryption configuration (optional, must match encryption key if data was encrypted)
 
 **Returns:**
 
@@ -423,12 +462,14 @@ func (c *Client) GetAPISpec(isAggregator bool) ([]byte, error)
 Retrieves a blob and returns an io.ReadCloser for streaming the content.
 
 ```go
-func (c *Client) ReadToReader(blobID string) (io.ReadCloser, error)
+func (c *Client) ReadToReader(blobID string, options *ReadOptions) (io.ReadCloser, error)
 ```
 
 **Parameters:**
 
 - `blobID string`: The blob ID to retrieve.
+- `options *ReadOptions`: Read options, including:
+  - Decryption configuration (optional, must match encryption key if data was encrypted)
 
 **Returns:**
 
@@ -450,6 +491,14 @@ if err != nil {
     log.Fatalf("Error reading content: %v", err)
 }
 ```
+
+### EncryptionOptions
+
+Options for configuring encryption/decryption.
+
+#### Fields
+
+- `Key []byte`: The encryption/decryption key. For AES-CTR encryption, this should be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256 respectively.
 
 ## Contributing
 

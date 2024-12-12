@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,8 +24,11 @@ func newTestClient(t *testing.T) *Client {
 }
 
 // Helper function to store test content and return blobID
-func storeTestContent(t *testing.T, client *Client) string {
-	resp, err := client.Store([]byte(testContent), &StoreOptions{Epochs: 1})
+func storeTestContent(t *testing.T, client *Client, opts *StoreOptions) string {
+	if opts == nil {
+		opts = &StoreOptions{Epochs: 1}
+	}
+	resp, err := client.Store([]byte(testContent), opts)
 	if err != nil {
 		t.Fatalf("Failed to store test content: %v", err)
 	}
@@ -126,7 +130,7 @@ func TestStoreFile(t *testing.T) {
 // TestHead tests retrieving blob metadata
 func TestHead(t *testing.T) {
 	client := newTestClient(t)
-	blobID := storeTestContent(t, client)
+	blobID := storeTestContent(t, client, nil)
 
 	metadata, err := client.Head(blobID)
 	if err != nil {
@@ -145,9 +149,9 @@ func TestHead(t *testing.T) {
 // TestRead tests reading blob content
 func TestRead(t *testing.T) {
 	client := newTestClient(t)
-	blobID := storeTestContent(t, client)
+	blobID := storeTestContent(t, client, nil)
 
-	data, err := client.Read(blobID)
+	data, err := client.Read(blobID, nil)
 	if err != nil {
 		t.Fatalf("Failed to read blob %s: %v", blobID, err)
 	}
@@ -161,7 +165,7 @@ func TestRead(t *testing.T) {
 // TestReadToFile tests reading blob to a file
 func TestReadToFile(t *testing.T) {
 	client := newTestClient(t)
-	blobID := storeTestContent(t, client)
+	blobID := storeTestContent(t, client, nil)
 
 	tmpfile, err := os.CreateTemp("", "walrus-read-test-*.txt")
 	if err != nil {
@@ -170,7 +174,7 @@ func TestReadToFile(t *testing.T) {
 	defer os.Remove(tmpfile.Name())
 	tmpfile.Close()
 
-	if err := client.ReadToFile(blobID, tmpfile.Name()); err != nil {
+	if err := client.ReadToFile(blobID, tmpfile.Name(), nil); err != nil {
 		t.Fatalf("Failed to read blob %s to file %s: %v", blobID, tmpfile.Name(), err)
 	}
 
@@ -188,9 +192,9 @@ func TestReadToFile(t *testing.T) {
 // TestReadToReader tests reading blob to an io.Reader
 func TestReadToReader(t *testing.T) {
 	client := newTestClient(t)
-	blobID := storeTestContent(t, client)
+	blobID := storeTestContent(t, client, nil)
 
-	reader, err := client.ReadToReader(blobID)
+	reader, err := client.ReadToReader(blobID, nil)
 	if err != nil {
 		t.Fatalf("Failed to get reader for blob %s: %v", blobID, err)
 	}
@@ -323,7 +327,7 @@ func TestRetryLogic(t *testing.T) {
 	)
 
 	// Test read operation with retry
-	data, err := client.Read("test-blob")
+	data, err := client.Read("test-blob", nil)
 	if err != nil {
 		t.Fatalf("Expected successful read after retries, got error: %v", err)
 	}
@@ -358,7 +362,7 @@ func TestMultipleEndpoints(t *testing.T) {
 	)
 
 	// Test read operation with endpoint failover
-	data, err := client.Read("test-blob")
+	data, err := client.Read("test-blob", nil)
 	if err != nil {
 		t.Fatalf("Expected successful read from second server, got error: %v", err)
 	}
@@ -425,5 +429,255 @@ func TestRequestBodyPreservation(t *testing.T) {
 
 	if attemptCount != maxAttempts {
 		t.Errorf("Expected %d attempts, got %d", maxAttempts, attemptCount)
+	}
+}
+
+// TestEncryption tests the encryption and decryption functionality
+func TestEncryption(t *testing.T) {
+	client := newTestClient(t)
+	testData := []byte("Hello, Encrypted World!")
+	key := make([]byte, 32) // AES-256 key
+	rand.Read(key)
+
+	// Test storing with encryption
+	storeOpts := &StoreOptions{
+		Epochs: 1,
+		Encryption: &EncryptionOptions{
+			Key: key,
+		},
+	}
+
+	resp, err := client.Store(testData, storeOpts)
+	if err != nil {
+		t.Fatalf("Failed to store encrypted data: %v", err)
+	}
+	resp.NormalizeBlobResponse()
+	blobID := resp.Blob.BlobID
+
+	// Test cases for reading
+	tests := []struct {
+		name        string
+		readOpts    *ReadOptions
+		shouldMatch bool
+		expectErr   bool
+	}{
+		{
+			name: "read with correct key",
+			readOpts: &ReadOptions{
+				Encryption: &EncryptionOptions{
+					Key: key,
+				},
+			},
+			shouldMatch: true,
+			expectErr:   false,
+		},
+		{
+			name:        "read without decryption",
+			readOpts:    nil,
+			shouldMatch: false,
+			expectErr:   false,
+		},
+		{
+			name: "read with wrong key",
+			readOpts: &ReadOptions{
+				Encryption: &EncryptionOptions{
+					Key: make([]byte, 32), // Different key
+				},
+			},
+			shouldMatch: false,
+			expectErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			retrieved, err := client.Read(blobID, tt.readOpts)
+			
+			if tt.expectErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Failed to read data: %v", err)
+			}
+
+			if tt.shouldMatch {
+				if !bytes.Equal(retrieved, testData) {
+					t.Errorf("Retrieved data doesn't match original.\nExpected: %s\nGot: %s",
+						string(testData), string(retrieved))
+				}
+			} else {
+				if bytes.Equal(retrieved, testData) {
+					t.Error("Retrieved data matches original when it shouldn't")
+				}
+			}
+		})
+	}
+}
+
+// TestEncryptionWithFile tests encryption functionality with file operations
+func TestEncryptionWithFile(t *testing.T) {
+	client := newTestClient(t)
+	testContent := []byte("Hello, Encrypted File!")
+	key := make([]byte, 32)
+	rand.Read(key)
+
+	// Create a temporary file for testing
+	srcFile, err := os.CreateTemp("", "walrus-encrypt-test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create source file: %v", err)
+	}
+	defer os.Remove(srcFile.Name())
+
+	if _, err := srcFile.Write(testContent); err != nil {
+		t.Fatalf("Failed to write test content: %v", err)
+	}
+	srcFile.Close()
+
+	// Store with encryption
+	storeOpts := &StoreOptions{
+		Epochs: 1,
+		Encryption: &EncryptionOptions{
+			Key: key,
+		},
+	}
+
+	resp, err := client.StoreFile(srcFile.Name(), storeOpts)
+	if err != nil {
+		t.Fatalf("Failed to store encrypted file: %v", err)
+	}
+	resp.NormalizeBlobResponse()
+	blobID := resp.Blob.BlobID
+
+	// Create a temporary file for reading
+	dstFile, err := os.CreateTemp("", "walrus-decrypt-test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create destination file: %v", err)
+	}
+	defer os.Remove(dstFile.Name())
+	dstFile.Close()
+
+	// Read with decryption
+	readOpts := &ReadOptions{
+		Encryption: &EncryptionOptions{
+			Key: key,
+		},
+	}
+
+	if err := client.ReadToFile(blobID, dstFile.Name(), readOpts); err != nil {
+		t.Fatalf("Failed to read encrypted file: %v", err)
+	}
+
+	// Verify content
+	retrieved, err := os.ReadFile(dstFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to read destination file: %v", err)
+	}
+
+	if !bytes.Equal(retrieved, testContent) {
+		t.Errorf("Retrieved file content doesn't match original.\nExpected: %s\nGot: %s",
+			string(testContent), string(retrieved))
+	}
+}
+
+// TestEncryptionWithReader tests encryption functionality with io.Reader
+func TestEncryptionWithReader(t *testing.T) {
+	client := newTestClient(t)
+	testData := []byte("Hello, Encrypted Stream!")
+	key := make([]byte, 32)
+	rand.Read(key)
+
+	// Store with encryption
+	storeOpts := &StoreOptions{
+		Epochs: 1,
+		Encryption: &EncryptionOptions{
+			Key: key,
+		},
+	}
+
+	reader := bytes.NewReader(testData)
+	resp, err := client.StoreFromReader(reader, int64(len(testData)), storeOpts)
+	if err != nil {
+		t.Fatalf("Failed to store encrypted data from reader: %v", err)
+	}
+	resp.NormalizeBlobResponse()
+	blobID := resp.Blob.BlobID
+
+	// Read with decryption
+	readOpts := &ReadOptions{
+		Encryption: &EncryptionOptions{
+			Key: key,
+		},
+	}
+
+	retrieved, err := client.Read(blobID, readOpts)
+	if err != nil {
+		t.Fatalf("Failed to read encrypted data: %v", err)
+	}
+
+	if !bytes.Equal(retrieved, testData) {
+		t.Errorf("Retrieved data doesn't match original.\nExpected: %s\nGot: %s",
+			string(testData), string(retrieved))
+	}
+}
+
+// TestEncryptionKeyValidation tests validation of encryption keys
+func TestEncryptionKeyValidation(t *testing.T) {
+	client := newTestClient(t)
+	testData := []byte("Test Data")
+
+	tests := []struct {
+		name      string
+		keyLength int
+		expectErr bool
+	}{
+		{
+			name:      "valid AES-128 key",
+			keyLength: 16,
+			expectErr: false,
+		},
+		{
+			name:      "valid AES-192 key",
+			keyLength: 24,
+			expectErr: false,
+		},
+		{
+			name:      "valid AES-256 key",
+			keyLength: 32,
+			expectErr: false,
+		},
+		{
+			name:      "invalid key length",
+			keyLength: 15,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := make([]byte, tt.keyLength)
+			rand.Read(key)
+
+			storeOpts := &StoreOptions{
+				Epochs: 1,
+				Encryption: &EncryptionOptions{
+					Key: key,
+				},
+			}
+
+			_, err := client.Store(testData, storeOpts)
+			if tt.expectErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
 	}
 }

@@ -108,9 +108,23 @@ func NewClient(opts ...ClientOption) *Client {
 	return client
 }
 
+// EncryptionOptions defines the encryption configuration
+type EncryptionOptions struct {
+	// Key used for encryption/decryption
+	Key []byte
+}
+
 // StoreOptions defines options for storing data
 type StoreOptions struct {
-	Epochs int // Number of storage epochs
+	Epochs int    // Number of storage epochs
+	// Encryption configuration, if nil encryption is disabled
+	Encryption *EncryptionOptions
+}
+
+// ReadOptions defines options for reading data
+type ReadOptions struct {
+	// Encryption configuration for decryption, if nil decryption is disabled
+	Encryption *EncryptionOptions
 }
 
 // BlobInfo represents the information returned after storing data
@@ -191,7 +205,18 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error) 
 		urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
 	}
 
-	req, err := http.NewRequest("PUT", urlStr, bytes.NewReader(data))
+	var reader io.Reader = bytes.NewReader(data)
+	
+	// If encryption is enabled
+	if opts != nil && opts.Encryption != nil {
+		var buf bytes.Buffer
+		if err := EncryptStream(opts.Encryption.Key, bytes.NewReader(data), &buf); err != nil {
+			return nil, fmt.Errorf("failed to encrypt data: %w", err)
+		}
+		reader = &buf
+	}
+
+	req, err := http.NewRequest("PUT", urlStr, reader)
 	if err != nil {
 		return nil, err
 	}
@@ -228,18 +253,28 @@ func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *St
 	var content []byte
 	var err error
 	
-	// If content length is unknown, read all content first
-	if contentLength <= 0 {
+	// If content length is unknown or encryption is enabled, read all content first
+	if contentLength <= 0 || (opts != nil && opts.Encryption != nil) {
 		content, err = io.ReadAll(reader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read content: %w", err)
 		}
 		contentLength = int64(len(content))
 		if contentLength > c.MaxUnknownLengthUploadSize {
-			return nil, fmt.Errorf("content length %d bytes exceeds maximum allowed size of %d bytes for uploads with unknown length", 
+			return nil, fmt.Errorf("content length %d bytes exceeds maximum allowed size of %d bytes", 
 				contentLength, c.MaxUnknownLengthUploadSize)
 		}
 		reader = bytes.NewReader(content)
+	}
+
+	// If encryption is enabled
+	if opts != nil && opts.Encryption != nil {
+		var buf bytes.Buffer
+		if err := EncryptStream(opts.Encryption.Key, reader, &buf); err != nil {
+			return nil, fmt.Errorf("failed to encrypt data: %w", err)
+		}
+		reader = &buf
+		contentLength = int64(buf.Len())
 	}
 
 	// Create request with the proper reader
@@ -307,7 +342,7 @@ func (c *Client) StoreFile(filePath string, opts *StoreOptions) (*StoreResponse,
 }
 
 // Read retrieves a blob from the Walrus Aggregator
-func (c *Client) Read(blobID string) ([]byte, error) {
+func (c *Client) Read(blobID string, opts *ReadOptions) ([]byte, error) {
 	urlStr := fmt.Sprintf("/v1/%s", url.PathEscape(blobID))
 
 	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
@@ -321,11 +356,20 @@ func (c *Client) Read(blobID string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
+	// If decryption is enabled
+	if opts != nil && opts.Encryption != nil {
+		var decryptedBuf bytes.Buffer
+		if err := DecryptStream(opts.Encryption.Key, resp.Body, &decryptedBuf); err != nil {
+			return nil, fmt.Errorf("failed to decrypt data: %w", err)
+		}
+		return decryptedBuf.Bytes(), nil
+	}
+
 	return io.ReadAll(resp.Body)
 }
 
 // ReadToFile retrieves a blob and writes it to a file
-func (c *Client) ReadToFile(blobID, filePath string) error {
+func (c *Client) ReadToFile(blobID, filePath string, opts *ReadOptions) error {
 	urlStr := fmt.Sprintf("/v1/%s", url.PathEscape(blobID))
 
 	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
@@ -345,6 +389,11 @@ func (c *Client) ReadToFile(blobID, filePath string) error {
 		return err
 	}
 	defer outFile.Close()
+
+	// If decryption is enabled
+	if opts != nil && opts.Encryption != nil {
+		return DecryptStream(opts.Encryption.Key, resp.Body, outFile)
+	}
 
 	// Write the response body to the file
 	_, err = io.Copy(outFile, resp.Body)
@@ -400,7 +449,7 @@ func (c *Client) Head(blobID string) (*BlobMetadata, error) {
 }
 
 // ReadToReader retrieves a blob and writes it to the provided io.Writer
-func (c *Client) ReadToReader(blobID string) (io.ReadCloser, error) {
+func (c *Client) ReadToReader(blobID string, options *ReadOptions) (io.ReadCloser, error) {
 	urlStr := fmt.Sprintf("/v1/%s", url.PathEscape(blobID))
 
 	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
@@ -411,6 +460,15 @@ func (c *Client) ReadToReader(blobID string) (io.ReadCloser, error) {
 	resp, err := c.doWithRetry(req, c.AggregatorURL)
 	if err != nil {
 		return nil, err
+	}
+
+	// If decryption is enabled
+	if options != nil && options.Encryption != nil {
+		var decryptedBuf bytes.Buffer
+		if err := DecryptStream(options.Encryption.Key, resp.Body, &decryptedBuf); err != nil {
+			return nil, fmt.Errorf("failed to decrypt data: %w", err)
+		}
+		return io.NopCloser(&decryptedBuf), nil
 	}
 
 	return resp.Body, nil
@@ -435,7 +493,7 @@ func (c *Client) doWithRetry(req *http.Request, urls []string) (*http.Response, 
 		fullURL := baseURL + req.URL.String()
 		req.URL, _ = url.Parse(fullURL)
 
-		// Create a new request for this attempt
+		// Create a new request for this attempt (since the original body might have been consumed)
 		newReq := &http.Request{}
 		*newReq = *req
 		if req.Body != nil {
@@ -456,7 +514,7 @@ func (c *Client) doWithRetry(req *http.Request, urls []string) (*http.Response, 
 		if err != nil {
 			lastErr = err
 		} else {
-			// Try to read error message from response body
+			// Attempt to read error message from response body for better error reporting
 			errBody, readErr := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if readErr == nil && len(errBody) > 0 {
