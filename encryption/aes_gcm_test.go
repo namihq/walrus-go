@@ -14,6 +14,7 @@ func TestGCMCipher(t *testing.T) {
 		16,     // Small data
 		1024,   // 1KB
 		65536,  // 64KB
+		1048576,   // 1MB
 	}
 
 	for _, size := range testSizes {

@@ -1,9 +1,9 @@
 package encryption
 
 import (
-    "crypto/aes"
-    "fmt"
-    "io"
+	"crypto/aes"
+	"fmt"
+	"io"
 )
 
 // ContentCipher defines the interface for content encryption and decryption
@@ -15,7 +15,7 @@ type ContentCipher interface {
     DecryptStream(src io.Reader, dst io.Writer) error
 }
 
-// NewCipher 根据加密套件和密钥创建一个新的加密器
+// NewCipher creates a new cipher based on the specified cipher suite and key
 func NewCipher(suite CipherSuite, key []byte, iv []byte) (ContentCipher, error) {
     switch suite {
     case AES256GCM:

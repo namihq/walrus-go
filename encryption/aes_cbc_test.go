@@ -15,6 +15,7 @@ func TestCBCCipher(t *testing.T) {
 		63,     // Not block aligned
 		1024,   // 1KB
 		65536,  // 64KB
+		1048576,   // 1MB
 	}
 
 	for _, size := range testSizes {
@@ -193,6 +194,8 @@ func (w *failingWriter) Write(p []byte) (n int, err error) {
 
 func formatTestName(size int) string {
 	switch {
+	case size >= 1048576:
+		return formatMB(size)
 	case size >= 1024:
 		return formatKB(size)
 	default:
@@ -206,4 +209,8 @@ func formatKB(size int) string {
 
 func formatBytes(size int) string {
 	return string(rune(size)) + "B"
+}
+
+func formatMB(size int) string {
+	return formatBytes(size/1048576) + "MB"
 } 
