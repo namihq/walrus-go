@@ -116,7 +116,14 @@ func TestCBCStreamErrors(t *testing.T) {
 		t.Fatalf("Failed to create cipher: %v", err)
 	}
 
-	// Test with failing reader/writer
+	// Create test data with valid padding
+	testData := []byte("test data with padding")
+	var encryptedBuf bytes.Buffer
+	err = cipher.EncryptStream(bytes.NewReader(testData), &encryptedBuf)
+	if err != nil {
+		t.Fatalf("Failed to encrypt test data: %v", err)
+	}
+
 	failingReader := &failingReader{err: io.ErrUnexpectedEOF}
 	failingWriter := &failingWriter{err: io.ErrShortWrite}
 
@@ -145,14 +152,22 @@ func TestCBCStreamErrors(t *testing.T) {
 		{
 			name: "decryption with failing writer",
 			test: func() error {
-				return cipher.DecryptStream(bytes.NewReader(make([]byte, 32)), failingWriter)
+				return cipher.DecryptStream(bytes.NewReader(encryptedBuf.Bytes()), failingWriter)
+			},
+		},
+		{
+			name: "decryption with invalid data",
+			test: func() error {
+				invalidData := make([]byte, 32) // Invalid encrypted data
+				return cipher.DecryptStream(bytes.NewReader(invalidData), &bytes.Buffer{})
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.test(); err == nil {
+			err := tt.test()
+			if err == nil {
 				t.Error("Expected error but got none")
 			}
 		})

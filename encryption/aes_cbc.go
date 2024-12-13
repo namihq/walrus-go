@@ -4,6 +4,7 @@ import (
     "bytes"
     "crypto/aes"
     "crypto/cipher"
+    "fmt"
     "io"
 )
 
@@ -23,10 +24,21 @@ func (p *PKCS7Padder) Pad(data []byte, size int) ([]byte, error) {
 func (p *PKCS7Padder) Unpad(data []byte) ([]byte, error) {
     length := len(data)
     if length == 0 {
-        return nil, nil
+        return nil, fmt.Errorf("cannot unpad empty data")
     }
 
     padding := int(data[length-1])
+    if padding > p.blockSize || padding == 0 {
+        return nil, fmt.Errorf("invalid padding size")
+    }
+
+    // Verify padding
+    for i := length - padding; i < length; i++ {
+        if data[i] != byte(padding) {
+            return nil, fmt.Errorf("invalid padding")
+        }
+    }
+
     return data[:length-padding], nil
 }
 
@@ -161,8 +173,8 @@ type cbcCipher struct {
     iv  []byte
 }
 
-// EncryptStreamCBC encrypts data from src using AES-CBC and writes the encrypted output to dst
-func (c cbcCipher) EncryptStream(src io.Reader, dst io.Writer) error {
+// EncryptStream encrypts data from src using AES-CBC and writes the encrypted output to dst
+func (c *cbcCipher) EncryptStream(src io.Reader, dst io.Writer) error {
     block, err := aes.NewCipher(c.key)
     if err != nil {
         return err
@@ -187,7 +199,7 @@ func (c cbcCipher) EncryptStream(src io.Reader, dst io.Writer) error {
 }
 
 // DecryptStream reads AES-CBC encrypted data from src and writes decrypted output to dst
-func (c cbcCipher) DecryptStream(src io.Reader, dst io.Writer) error {
+func (c *cbcCipher) DecryptStream(src io.Reader, dst io.Writer) error {
     block, err := aes.NewCipher(c.key)
     if err != nil {
         return err

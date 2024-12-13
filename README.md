@@ -455,8 +455,8 @@ rand.Read(key)
 resp, err := client.Store(data, &walrus.StoreOptions{
     Epochs: 1,
     Encryption: &walrus.EncryptionOptions{
-        Key: key,
-        Mode: "GCM", // Default mode if not specified
+        Key:   key,
+        Suite: encryption.AES256GCM, // Default if not specified
     },
 })
 
@@ -466,9 +466,9 @@ rand.Read(iv)
 resp, err := client.Store(data, &walrus.StoreOptions{
     Epochs: 1,
     Encryption: &walrus.EncryptionOptions{
-        Key:  key,
-        Mode: "CBC",
-        IV:   iv,
+        Key:   key,
+        Suite: encryption.AES256CBC,
+        IV:    iv,
     },
 })
 ```
@@ -479,17 +479,17 @@ resp, err := client.Store(data, &walrus.StoreOptions{
 // Using GCM mode
 retrievedData, err := client.Read(blobID, &walrus.ReadOptions{
     Encryption: &walrus.EncryptionOptions{
-        Key: key,
-        Mode: "GCM",
+        Key:   key,
+        Suite: encryption.AES256GCM,
     },
 })
 
 // Using CBC mode (must provide the same IV used for encryption)
 retrievedData, err := client.Read(blobID, &walrus.ReadOptions{
     Encryption: &walrus.EncryptionOptions{
-        Key:  key,
-        Mode: "CBC",
-        IV:   iv,
+        Key:   key,
+        Suite: encryption.AES256CBC,
+        IV:    iv,
     },
 })
 ```
@@ -518,8 +518,8 @@ type EncryptionOptions struct {
     // Should be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256
     Key []byte
 
-    // The encryption mode: "GCM" (default) or "CBC"
-    Mode string
+    // The encryption suite to use: encryption.AES256GCM (default) or encryption.AES256CBC
+    Suite encryption.CipherSuite
 
     // Initialization Vector, required for CBC mode
     // Must be 16 bytes

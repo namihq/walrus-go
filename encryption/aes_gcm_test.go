@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -25,7 +26,7 @@ func TestGCMCipher(t *testing.T) {
 			key := make([]byte, 32)
 			rand.Read(key)
 
-			cipher, err := NewGCMCipher(key)
+			cipher, err := NewGCMContentCipher(key)
 			if err != nil {
 				t.Fatalf("Failed to create GCM cipher: %v", err)
 			}
@@ -56,31 +57,32 @@ func TestGCMCipher(t *testing.T) {
 
 func TestGCMCipherErrors(t *testing.T) {
 	tests := []struct {
-		name    string
-		key     []byte
-		wantErr string
+		name     string
+		key      []byte
+		errorMsg string
 	}{
 		{
-			name:    "invalid key size",
-			key:     make([]byte, 15),
-			wantErr: "invalid key size",
+			name:     "invalid key size",
+			key:      make([]byte, 15),
+			errorMsg: "invalid key size: 15",
 		},
 		{
-			name:    "nil key",
-			key:     nil,
-			wantErr: "invalid key size",
+			name:     "nil key",
+			key:      nil,
+			errorMsg: "key cannot be nil",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewGCMCipher(tt.key)
+			_, err := NewGCMContentCipher(tt.key)
 			if err == nil {
 				t.Error("Expected error but got none")
 				return
 			}
-			if err.Error() != tt.wantErr {
-				t.Errorf("Expected error '%s', got '%s'", tt.wantErr, err.Error())
+
+			if !strings.Contains(err.Error(), tt.errorMsg) {
+				t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
 			}
 		})
 	}
@@ -91,7 +93,7 @@ func TestGCMAuthenticationAndTampering(t *testing.T) {
 	key := make([]byte, 32)
 	rand.Read(key)
 
-	cipher, err := NewGCMCipher(key)
+	cipher, err := NewGCMContentCipher(key)
 	if err != nil {
 		t.Fatalf("Failed to create cipher: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestGCMStreamErrors(t *testing.T) {
 	key := make([]byte, 32)
 	rand.Read(key)
 
-	cipher, err := NewGCMCipher(key)
+	cipher, err := NewGCMContentCipher(key)
 	if err != nil {
 		t.Fatalf("Failed to create cipher: %v", err)
 	}

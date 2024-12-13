@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/suiet/walrus-go/encryption"
 )
 
 const (
@@ -450,8 +452,8 @@ func TestEncryption(t *testing.T) {
 			storeOpts: &StoreOptions{
 				Epochs: 1,
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32), // Will be filled with random data
-					Mode: "GCM",
+					Key:   make([]byte, 32), // Will be filled with random data
+					Suite: encryption.AES256GCM,
 				},
 			},
 			shouldMatch: true,
@@ -462,9 +464,9 @@ func TestEncryption(t *testing.T) {
 			storeOpts: &StoreOptions{
 				Epochs: 1,
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32), // Will be filled with random data
-					Mode: "CBC",
-					IV:   make([]byte, 16), // Will be filled with random data
+					Key:   make([]byte, 32), // Will be filled with random data
+					Suite: encryption.AES256CBC,
+					IV:    make([]byte, 16), // Will be filled with random data
 				},
 			},
 			shouldMatch: true,
@@ -475,8 +477,8 @@ func TestEncryption(t *testing.T) {
 			storeOpts: &StoreOptions{
 				Epochs: 1,
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32),
-					Mode: "CBC",
+					Key:   make([]byte, 32),
+					Suite: encryption.AES256CBC,
 					// Missing IV
 				},
 			},
@@ -488,8 +490,8 @@ func TestEncryption(t *testing.T) {
 			storeOpts: &StoreOptions{
 				Epochs: 1,
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32),
-					Mode: "invalid",
+					Key:   make([]byte, 32),
+					Suite: "invalid",
 				},
 			},
 			shouldMatch: false,
@@ -502,7 +504,7 @@ func TestEncryption(t *testing.T) {
 			// Generate random key and IV if needed
 			if tt.storeOpts != nil && tt.storeOpts.Encryption != nil {
 				rand.Read(tt.storeOpts.Encryption.Key)
-				if tt.storeOpts.Encryption.Mode == "CBC" && tt.storeOpts.Encryption.IV != nil {
+				if tt.storeOpts.Encryption.Suite == encryption.AES256CBC && tt.storeOpts.Encryption.IV != nil {
 					rand.Read(tt.storeOpts.Encryption.IV)
 				}
 			}
@@ -525,9 +527,9 @@ func TestEncryption(t *testing.T) {
 			// Create matching read options
 			readOpts := &ReadOptions{
 				Encryption: &EncryptionOptions{
-					Key:  tt.storeOpts.Encryption.Key,
-					Mode: tt.storeOpts.Encryption.Mode,
-					IV:   tt.storeOpts.Encryption.IV,
+					Key:   tt.storeOpts.Encryption.Key,
+					Suite: tt.storeOpts.Encryption.Suite,
+					IV:    tt.storeOpts.Encryption.IV,
 				},
 			}
 
@@ -561,8 +563,8 @@ func TestEncryptionModeErrors(t *testing.T) {
 			name: "CBC without IV",
 			opts: &StoreOptions{
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32),
-					Mode: "CBC",
+					Key:   make([]byte, 32),
+					Suite: encryption.AES256CBC,
 				},
 			},
 			errorMsg: "IV is required for CBC mode",
@@ -571,17 +573,17 @@ func TestEncryptionModeErrors(t *testing.T) {
 			name: "Invalid mode",
 			opts: &StoreOptions{
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32),
-					Mode: "XYZ",
+					Key:   make([]byte, 32),
+					Suite: "XYZ",
 				},
 			},
-			errorMsg: "unsupported encryption mode: XYZ",
+			errorMsg: "failed to create cipher: unsupported cipher suite: XYZ",
 		},
 		{
 			name: "Empty key",
 			opts: &StoreOptions{
 				Encryption: &EncryptionOptions{
-					Mode: "GCM",
+					Suite: encryption.AES256GCM,
 				},
 			},
 			errorMsg: "encryption key is required",
@@ -623,8 +625,8 @@ func TestEncryptionLargeFile(t *testing.T) {
 			name: "GCM mode",
 			opts: &StoreOptions{
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32),
-					Mode: "GCM",
+					Key:   make([]byte, 32),
+					Suite: encryption.AES256GCM,
 				},
 			},
 		},
@@ -632,9 +634,9 @@ func TestEncryptionLargeFile(t *testing.T) {
 			name: "CBC mode",
 			opts: &StoreOptions{
 				Encryption: &EncryptionOptions{
-					Key:  make([]byte, 32),
-					Mode: "CBC",
-					IV:   make([]byte, 16),
+					Key:   make([]byte, 32),
+					Suite: encryption.AES256CBC,
+					IV:    make([]byte, 16),
 				},
 			},
 		},
@@ -644,7 +646,7 @@ func TestEncryptionLargeFile(t *testing.T) {
 		t.Run(mode.name, func(t *testing.T) {
 			// Generate random key and IV
 			rand.Read(mode.opts.Encryption.Key)
-			if mode.opts.Encryption.Mode == "CBC" {
+			if mode.opts.Encryption.Suite == encryption.AES256CBC {
 				rand.Read(mode.opts.Encryption.IV)
 			}
 
@@ -660,9 +662,9 @@ func TestEncryptionLargeFile(t *testing.T) {
 			// Create matching read options
 			readOpts := &ReadOptions{
 				Encryption: &EncryptionOptions{
-					Key:  mode.opts.Encryption.Key,
-					Mode: mode.opts.Encryption.Mode,
-					IV:   mode.opts.Encryption.IV,
+					Key:   mode.opts.Encryption.Key,
+					Suite: mode.opts.Encryption.Suite,
+					IV:    mode.opts.Encryption.IV,
 				},
 			}
 

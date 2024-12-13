@@ -1,17 +1,17 @@
 package walrus_go
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"strconv"
-	"time"
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+    "net/url"
+    "os"
+    "strconv"
+    "time"
 
-	"github.com/suiet/walrus-go/encryption"
+    "github.com/suiet/walrus-go/encryption"
 )
 
 // RetryConfig defines the retry configuration
@@ -114,9 +114,10 @@ func NewClient(opts ...ClientOption) *Client {
 type EncryptionOptions struct {
     // Key used for encryption/decryption
     Key []byte
-    // Mode specifies the encryption mode ("CBC" or "GCM")
-    Mode string
-    // IV is only required for CBC mode
+    // Suite specifies the cipher suite to use
+    // Default is AES256GCM if not specified
+    Suite encryption.CipherSuite
+    // IV is only required for certain cipher suites (e.g., AES256CBC)
     IV []byte
 }
 
@@ -204,22 +205,31 @@ type BlobMetadata struct {
     ETag          string `json:"etag"`
 }
 
-// Add a helper function to create cipher
-func (opts *EncryptionOptions) getCipher() (encryption.StreamCipher, error) {
+// getCipher creates a cipher based on the encryption options
+func (opts *EncryptionOptions) getCipher() (encryption.ContentCipher, error) {
     if opts == nil || len(opts.Key) == 0 {
         return nil, fmt.Errorf("encryption key is required")
     }
 
-    switch opts.Mode {
-    case "CBC":
+    // Default to GCM if not specified
+    if opts.Suite == "" {
+        opts.Suite = encryption.AES256GCM
+    }
+
+    if !opts.Suite.IsValid() {
+        return nil, fmt.Errorf("unsupported cipher suite: %s", opts.Suite)
+    }
+
+    switch opts.Suite {
+    case encryption.AES256CBC:
         if len(opts.IV) == 0 {
             return nil, fmt.Errorf("IV is required for CBC mode")
         }
         return encryption.NewCBCCipher(opts.Key, opts.IV)
-    case "GCM", "": // Default to GCM if no mode is specified
+    case encryption.AES256GCM:
         return encryption.NewGCMCipher(opts.Key)
     default:
-        return nil, fmt.Errorf("unsupported encryption mode: %s", opts.Mode)
+        return nil, fmt.Errorf("unsupported cipher suite: %s", opts.Suite)
     }
 }
 
