@@ -24,6 +24,11 @@ The **walrus-go** SDK provides a Go client for interacting with the [Walrus](htt
     - [ReadToFile](#readtofile)
     - [GetAPISpec](#getapispec)
     - [ReadToReader](#readtoreader)
+- [Encryption](#encryption)
+  - [Storing Encrypted Data](#storing-encrypted-data)
+  - [Retrieving Encrypted Data](#retrieving-encrypted-data)
+  - [Encryption Modes](#encryption-modes)
+  - [EncryptionOptions](#encryptionoptions)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -32,7 +37,7 @@ The **walrus-go** SDK provides a Go client for interacting with the [Walrus](htt
 - Store data and files on the Walrus Publisher.
 - Retrieve data and files from the Walrus Aggregator.
 - Supports specifying storage epochs.
-- Supports end-to-end encryption using AES-CTR.
+- Supports end-to-end encryption using AES-GCM and AES-CBC.
 - Handles response parsing and error handling.
 
 ## Installation
@@ -86,18 +91,9 @@ By default, the client uses testnet endpoints. You can customize the client usin
 You can store data on the Walrus Publisher using the `Store` method:
 
 ```go
-// Store without encryption
+// Store data
 data := []byte("some string")
 resp, err := client.Store(data, &walrus.StoreOptions{Epochs: 1})
-
-// Store with encryption
-key := []byte("your-32-byte-encryption-key-here") // AES-256 key
-resp, err := client.Store(data, &walrus.StoreOptions{
-    Epochs: 1,
-    Encryption: &walrus.EncryptionOptions{
-        Key: key,
-    },
-})
 
 if err != nil {
     log.Fatalf("Error storing data: %v", err)
@@ -115,131 +111,13 @@ if resp.NewlyCreated != nil {
 }
 ```
 
-### Methods
-
-#### Store
-
-Stores data on the Walrus Publisher and returns detailed response information.
-
-```go
-func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error)
-```
-
-**Parameters:**
-
-- `data []byte`: The data to store.
-- `opts *StoreOptions`: Storage options, including:
-  - Number of epochs
-  - Encryption configuration (optional)
-
-**Returns:**
-
-- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
-- `error`: Error if the operation fails.
-
-#### StoreFromReader
-
-Stores data from an io.Reader on the Walrus Publisher.
-
-```go
-func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *StoreOptions) (*StoreResponse, error)
-```
-
-**Parameters:**
-
-- `reader io.Reader`: The source to read data from.
-- `contentLength int64`: The total size of the data to be stored. Use -1 if unknown.
-- `opts *StoreOptions`: Storage options, such as the number of epochs.
-
-**Returns:**
-
-- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
-- `error`: Error if the operation fails.
-
-#### StoreFromURL
-
-Downloads and stores content from a URL on the Walrus Publisher.
-
-```go
-func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (*StoreResponse, error)
-```
-
-**Parameters:**
-
-- `sourceURL string`: The URL to download content from.
-- `opts *StoreOptions`: Storage options, such as the number of epochs.
-
-**Returns:**
-
-- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
-- `error`: Error if the operation fails.
-
-#### StoreFile
-
-Stores a file on the Walrus Publisher.
-
-```go
-func (c *Client) StoreFile(filePath string, opts *StoreOptions) (*StoreResponse, error)
-```
-
-**Parameters:**
-
-- `filePath string`: Path to the file to store.
-- `opts *StoreOptions`: Storage options.
-
-**Returns:**
-
-- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
-- `error`: Error if the operation fails.
-
-#### Head
-
-Retrieves blob metadata from the Walrus Aggregator without downloading the content.
-
-```go
-func (c *Client) Head(blobID string) (*BlobMetadata, error)
-```
-
-**Parameters:**
-
-- `blobID string`: The blob ID to get metadata for.
-
-**Returns:**
-
-- `*BlobMetadata`: Contains metadata information including:
-  - `ContentLength`: Size of the blob in bytes
-  - `ContentType`: MIME type of the content
-  - `LastModified`: Last modification timestamp
-  - `ETag`: Entity tag for cache validation
-- `error`: Error if the operation fails.
-
-**Example:**
-
-```go
-metadata, err := client.Head("your-blob-id")
-if err != nil {
-    log.Fatalf("Error getting metadata: %v", err)
-}
-fmt.Printf("Blob size: %d bytes\n", metadata.ContentLength)
-fmt.Printf("Content type: %s\n", metadata.ContentType)
-fmt.Printf("Last modified: %s\n", metadata.LastModified)
-```
-
 ### Retrieving Data
 
 Retrieve the stored data using the `Read` method:
 
 ```go
-// Read without decryption
+// Read data
 retrievedData, err := client.Read(blobID, nil)
-
-// Read with decryption (use the same key used for encryption)
-key := []byte("your-32-byte-encryption-key-here")
-retrievedData, err := client.Read(blobID, &walrus.ReadOptions{
-    Encryption: &walrus.EncryptionOptions{
-        Key: key,
-    },
-})
 
 if err != nil {
     log.Fatalf("Error reading data: %v", err)
@@ -384,12 +262,49 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error)
 - `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
 
+#### StoreFromReader
+
+Stores data from an io.Reader on the Walrus Publisher.
+
+```go
+func (c *Client) StoreFromReader(reader io.Reader, contentLength int64, opts *StoreOptions) (*StoreResponse, error)
+```
+
+**Parameters:**
+
+- `reader io.Reader`: The source to read data from.
+- `contentLength int64`: The total size of the data to be stored. Use -1 if unknown.
+- `opts *StoreOptions`: Storage options, such as the number of epochs.
+
+**Returns:**
+
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
+- `error`: Error if the operation fails.
+
+#### StoreFromURL
+
+Downloads and stores content from a URL on the Walrus Publisher.
+
+```go
+func (c *Client) StoreFromURL(sourceURL string, opts *StoreOptions) (*StoreResponse, error)
+```
+
+**Parameters:**
+
+- `sourceURL string`: The URL to download content from.
+- `opts *StoreOptions`: Storage options, such as the number of epochs.
+
+**Returns:**
+
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
+- `error`: Error if the operation fails.
+
 #### StoreFile
 
 Stores a file on the Walrus Publisher.
 
 ```go
-func (c *Client) StoreFile(filePath string, opts *StoreOptions) (string, error)
+func (c *Client) StoreFile(filePath string, opts *StoreOptions) (*StoreResponse, error)
 ```
 
 **Parameters:**
@@ -399,8 +314,41 @@ func (c *Client) StoreFile(filePath string, opts *StoreOptions) (string, error)
 
 **Returns:**
 
-- `string`: The blob ID of the stored file.
+- `*StoreResponse`: The complete response containing either NewlyCreated or AlreadyCertified information.
 - `error`: Error if the operation fails.
+
+#### Head
+
+Retrieves blob metadata from the Walrus Aggregator without downloading the content.
+
+```go
+func (c *Client) Head(blobID string) (*BlobMetadata, error)
+```
+
+**Parameters:**
+
+- `blobID string`: The blob ID to get metadata for.
+
+**Returns:**
+
+- `*BlobMetadata`: Contains metadata information including:
+  - `ContentLength`: Size of the blob in bytes
+  - `ContentType`: MIME type of the content
+  - `LastModified`: Last modification timestamp
+  - `ETag`: Entity tag for cache validation
+- `error`: Error if the operation fails.
+
+**Example:**
+
+```go
+metadata, err := client.Head("your-blob-id")
+if err != nil {
+    log.Fatalf("Error getting metadata: %v", err)
+}
+fmt.Printf("Blob size: %d bytes\n", metadata.ContentLength)
+fmt.Printf("Content type: %s\n", metadata.ContentType)
+fmt.Printf("Last modified: %s\n", metadata.LastModified)
+```
 
 #### Read
 
@@ -492,13 +440,92 @@ if err != nil {
 }
 ```
 
+## Encryption
+
+The SDK supports end-to-end encryption using AES in two modes: GCM (recommended) and CBC.
+
+### Storing Encrypted Data
+
+```go
+// Generate a random key for encryption
+key := make([]byte, 32) // AES-256 key
+rand.Read(key)
+
+// Using GCM mode (recommended, provides authentication)
+resp, err := client.Store(data, &walrus.StoreOptions{
+    Epochs: 1,
+    Encryption: &walrus.EncryptionOptions{
+        Key: key,
+        Mode: "GCM", // Default mode if not specified
+    },
+})
+
+// Or using CBC mode (requires IV)
+iv := make([]byte, 16)
+rand.Read(iv)
+resp, err := client.Store(data, &walrus.StoreOptions{
+    Epochs: 1,
+    Encryption: &walrus.EncryptionOptions{
+        Key:  key,
+        Mode: "CBC",
+        IV:   iv,
+    },
+})
+```
+
+### Retrieving Encrypted Data
+
+```go
+// Using GCM mode
+retrievedData, err := client.Read(blobID, &walrus.ReadOptions{
+    Encryption: &walrus.EncryptionOptions{
+        Key: key,
+        Mode: "GCM",
+    },
+})
+
+// Using CBC mode (must provide the same IV used for encryption)
+retrievedData, err := client.Read(blobID, &walrus.ReadOptions{
+    Encryption: &walrus.EncryptionOptions{
+        Key:  key,
+        Mode: "CBC",
+        IV:   iv,
+    },
+})
+```
+
+### Encryption Modes
+
+1. **GCM (Galois/Counter Mode)** - Recommended
+
+   - Provides both confidentiality and authenticity
+   - Automatically handles IV/nonce generation
+   - No padding required
+
+2. **CBC (Cipher Block Chaining)**
+   - Traditional block cipher mode
+   - Requires explicit IV
+   - Uses PKCS7 padding
+
+> **Security Note**: For CBC mode, never reuse the same key and IV combination.
+> Always generate a new random IV for each encryption operation.
+
 ### EncryptionOptions
 
-Options for configuring encryption/decryption.
+```go
+type EncryptionOptions struct {
+    // The encryption/decryption key
+    // Should be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256
+    Key []byte
 
-#### Fields
+    // The encryption mode: "GCM" (default) or "CBC"
+    Mode string
 
-- `Key []byte`: The encryption/decryption key. For AES-CTR encryption, this should be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256 respectively.
+    // Initialization Vector, required for CBC mode
+    // Must be 16 bytes
+    IV []byte
+}
+```
 
 ## Contributing
 
