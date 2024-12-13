@@ -31,16 +31,24 @@ func (c *gcmContentCipher) EncryptStream(src io.Reader, dst io.Writer) error {
 		return err
 	}
 
-	// Read all data from src
-	plaintext, err := io.ReadAll(src)
-	if err != nil {
-		return err
+	// Create buffer for reading chunks
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			ciphertext := c.gcm.Seal(nil, nonce, buf[:n], nil)
+			if _, err := dst.Write(ciphertext); err != nil {
+				return err
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
 	}
-
-	// Encrypt and write the data
-	ciphertext := c.gcm.Seal(nil, nonce, plaintext, nil)
-	_, err = dst.Write(ciphertext)
-	return err
+	return nil
 }
 
 func (c *gcmContentCipher) DecryptStream(src io.Reader, dst io.Writer) error {
@@ -50,21 +58,27 @@ func (c *gcmContentCipher) DecryptStream(src io.Reader, dst io.Writer) error {
 		return err
 	}
 
-	// Read the ciphertext
-	ciphertext, err := io.ReadAll(src)
-	if err != nil {
-		return err
+	// Create buffer for reading chunks
+	buf := make([]byte, 32*1024 + c.gcm.Overhead())
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			plaintext, err := c.gcm.Open(nil, nonce, buf[:n], nil)
+			if err != nil {
+				return err
+			}
+			if _, err := dst.Write(plaintext); err != nil {
+				return err
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
 	}
-
-	// Decrypt the data
-	plaintext, err := c.gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return err
-	}
-
-	// Write the decrypted data
-	_, err = dst.Write(plaintext)
-	return err
+	return nil
 }
 
 func NewGCMContentCipher(key []byte) (ContentCipher, error) {
