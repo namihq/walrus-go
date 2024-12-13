@@ -220,17 +220,7 @@ func (opts *EncryptionOptions) getCipher() (encryption.ContentCipher, error) {
         return nil, fmt.Errorf("unsupported cipher suite: %s", opts.Suite)
     }
 
-    switch opts.Suite {
-    case encryption.AES256CBC:
-        if len(opts.IV) == 0 {
-            return nil, fmt.Errorf("IV is required for CBC mode")
-        }
-        return encryption.NewCBCCipher(opts.Key, opts.IV)
-    case encryption.AES256GCM:
-        return encryption.NewGCMCipher(opts.Key)
-    default:
-        return nil, fmt.Errorf("unsupported cipher suite: %s", opts.Suite)
-    }
+    return encryption.NewCipher(opts.Suite, opts.Key, opts.IV)
 }
 
 // Store stores data on the Walrus Publisher and returns the complete store response

@@ -1,9 +1,9 @@
 package encryption
 
 import (
-	"crypto/aes"
-	"fmt"
-	"io"
+    "crypto/aes"
+    "fmt"
+    "io"
 )
 
 // ContentCipher defines the interface for content encryption and decryption
@@ -21,9 +21,12 @@ func NewCipher(suite CipherSuite, key []byte, iv []byte) (ContentCipher, error) 
     case AES256GCM:
         return NewGCMContentCipher(key)
     case AES256CBC:
+        if len(iv) == 0 {
+            return nil, fmt.Errorf("IV is required for CBC mode")
+        }
         return NewCBCCipher(key, iv)
     default:
-        return nil, ErrUnsupportedCipherSuite
+        return nil, fmt.Errorf(" unsupported cipher suite: %s", suite)
     }
 }
 
@@ -61,5 +64,3 @@ func NewGCMCipher(key []byte) (*gcmContentCipher, error) {
         key: key,
     }, nil
 }
-
-var ErrUnsupportedCipherSuite = fmt.Errorf("unsupported cipher suite")
