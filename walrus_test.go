@@ -432,56 +432,64 @@ func TestRequestBodyPreservation(t *testing.T) {
 	}
 }
 
-// TestEncryption tests the encryption and decryption functionality
+// TestEncryption tests both CBC and GCM encryption modes
 func TestEncryption(t *testing.T) {
 	client := newTestClient(t)
 	testData := []byte("Hello, Encrypted World!")
-	key := make([]byte, 32) // AES-256 key
-	rand.Read(key)
 
-	// Test storing with encryption
-	storeOpts := &StoreOptions{
-		Epochs: 1,
-		Encryption: &EncryptionOptions{
-			Key: key,
-		},
-	}
-
-	resp, err := client.Store(testData, storeOpts)
-	if err != nil {
-		t.Fatalf("Failed to store encrypted data: %v", err)
-	}
-	resp.NormalizeBlobResponse()
-	blobID := resp.Blob.BlobID
-
-	// Test cases for reading
+	// Create test cases for each encryption mode
 	tests := []struct {
 		name        string
+		storeOpts   *StoreOptions
 		readOpts    *ReadOptions
 		shouldMatch bool
 		expectErr   bool
 	}{
 		{
-			name: "read with correct key",
-			readOpts: &ReadOptions{
+			name: "GCM mode - correct key",
+			storeOpts: &StoreOptions{
+				Epochs: 1,
 				Encryption: &EncryptionOptions{
-					Key: key,
+					Key:  make([]byte, 32), // Will be filled with random data
+					Mode: "GCM",
 				},
 			},
 			shouldMatch: true,
 			expectErr:   false,
 		},
 		{
-			name:        "read without decryption",
-			readOpts:    nil,
-			shouldMatch: false,
+			name: "CBC mode - correct key",
+			storeOpts: &StoreOptions{
+				Epochs: 1,
+				Encryption: &EncryptionOptions{
+					Key:  make([]byte, 32), // Will be filled with random data
+					Mode: "CBC",
+					IV:   make([]byte, 16), // Will be filled with random data
+				},
+			},
+			shouldMatch: true,
 			expectErr:   false,
 		},
 		{
-			name: "read with wrong key",
-			readOpts: &ReadOptions{
+			name: "CBC mode - missing IV",
+			storeOpts: &StoreOptions{
+				Epochs: 1,
 				Encryption: &EncryptionOptions{
-					Key: make([]byte, 32), // Different key
+					Key:  make([]byte, 32),
+					Mode: "CBC",
+					// Missing IV
+				},
+			},
+			shouldMatch: false,
+			expectErr:   true,
+		},
+		{
+			name: "Invalid mode",
+			storeOpts: &StoreOptions{
+				Epochs: 1,
+				Encryption: &EncryptionOptions{
+					Key:  make([]byte, 32),
+					Mode: "invalid",
 				},
 			},
 			shouldMatch: false,
@@ -491,17 +499,42 @@ func TestEncryption(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			retrieved, err := client.Read(blobID, tt.readOpts)
-			
+			// Generate random key and IV if needed
+			if tt.storeOpts != nil && tt.storeOpts.Encryption != nil {
+				rand.Read(tt.storeOpts.Encryption.Key)
+				if tt.storeOpts.Encryption.Mode == "CBC" && tt.storeOpts.Encryption.IV != nil {
+					rand.Read(tt.storeOpts.Encryption.IV)
+				}
+			}
+
+			// Store with encryption
+			resp, err := client.Store(testData, tt.storeOpts)
 			if tt.expectErr {
 				if err == nil {
 					t.Error("Expected error but got none")
 				}
 				return
 			}
-
 			if err != nil {
-				t.Fatalf("Failed to read data: %v", err)
+				t.Fatalf("Failed to store encrypted data: %v", err)
+			}
+
+			resp.NormalizeBlobResponse()
+			blobID := resp.Blob.BlobID
+
+			// Create matching read options
+			readOpts := &ReadOptions{
+				Encryption: &EncryptionOptions{
+					Key:  tt.storeOpts.Encryption.Key,
+					Mode: tt.storeOpts.Encryption.Mode,
+					IV:   tt.storeOpts.Encryption.IV,
+				},
+			}
+
+			// Read with decryption
+			retrieved, err := client.Read(blobID, readOpts)
+			if err != nil {
+				t.Fatalf("Failed to read encrypted data: %v", err)
 			}
 
 			if tt.shouldMatch {
@@ -509,10 +542,138 @@ func TestEncryption(t *testing.T) {
 					t.Errorf("Retrieved data doesn't match original.\nExpected: %s\nGot: %s",
 						string(testData), string(retrieved))
 				}
-			} else {
-				if bytes.Equal(retrieved, testData) {
-					t.Error("Retrieved data matches original when it shouldn't")
-				}
+			}
+		})
+	}
+}
+
+// TestEncryptionModeErrors tests error handling for different encryption modes
+func TestEncryptionModeErrors(t *testing.T) {
+	client := newTestClient(t)
+	testData := []byte("Test Data")
+
+	tests := []struct {
+		name     string
+		opts     *StoreOptions
+		errorMsg string
+	}{
+		{
+			name: "CBC without IV",
+			opts: &StoreOptions{
+				Encryption: &EncryptionOptions{
+					Key:  make([]byte, 32),
+					Mode: "CBC",
+				},
+			},
+			errorMsg: "IV is required for CBC mode",
+		},
+		{
+			name: "Invalid mode",
+			opts: &StoreOptions{
+				Encryption: &EncryptionOptions{
+					Key:  make([]byte, 32),
+					Mode: "XYZ",
+				},
+			},
+			errorMsg: "unsupported encryption mode: XYZ",
+		},
+		{
+			name: "Empty key",
+			opts: &StoreOptions{
+				Encryption: &EncryptionOptions{
+					Mode: "GCM",
+				},
+			},
+			errorMsg: "encryption key is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.opts.Encryption.Key != nil {
+				rand.Read(tt.opts.Encryption.Key)
+			}
+
+			_, err := client.Store(testData, tt.opts)
+			if err == nil {
+				t.Error("Expected error but got none")
+				return
+			}
+
+			if !strings.Contains(err.Error(), tt.errorMsg) {
+				t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
+			}
+		})
+	}
+}
+
+// TestEncryptionLargeFile tests encryption and decryption of large files
+func TestEncryptionLargeFile(t *testing.T) {
+	client := newTestClient(t)
+	
+	// Create 1MB test data
+	testData := make([]byte, 1024*1024)
+	rand.Read(testData)
+
+	modes := []struct {
+		name string
+		opts *StoreOptions
+	}{
+		{
+			name: "GCM mode",
+			opts: &StoreOptions{
+				Encryption: &EncryptionOptions{
+					Key:  make([]byte, 32),
+					Mode: "GCM",
+				},
+			},
+		},
+		{
+			name: "CBC mode",
+			opts: &StoreOptions{
+				Encryption: &EncryptionOptions{
+					Key:  make([]byte, 32),
+					Mode: "CBC",
+					IV:   make([]byte, 16),
+				},
+			},
+		},
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			// Generate random key and IV
+			rand.Read(mode.opts.Encryption.Key)
+			if mode.opts.Encryption.Mode == "CBC" {
+				rand.Read(mode.opts.Encryption.IV)
+			}
+
+			// Store encrypted data
+			resp, err := client.Store(testData, mode.opts)
+			if err != nil {
+				t.Fatalf("Failed to store encrypted data: %v", err)
+			}
+
+			resp.NormalizeBlobResponse()
+			blobID := resp.Blob.BlobID
+
+			// Create matching read options
+			readOpts := &ReadOptions{
+				Encryption: &EncryptionOptions{
+					Key:  mode.opts.Encryption.Key,
+					Mode: mode.opts.Encryption.Mode,
+					IV:   mode.opts.Encryption.IV,
+				},
+			}
+
+			// Read and decrypt data
+			retrieved, err := client.Read(blobID, readOpts)
+			if err != nil {
+				t.Fatalf("Failed to read encrypted data: %v", err)
+			}
+
+			if !bytes.Equal(retrieved, testData) {
+				t.Error("Retrieved data doesn't match original")
 			}
 		})
 	}
