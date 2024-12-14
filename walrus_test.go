@@ -2,6 +2,7 @@ package walrus_go
 
 import (
     "bytes"
+    "crypto/sha256"
     "encoding/json"
     "fmt"
     "io"
@@ -704,7 +705,8 @@ func TestEncryptionWithFile(t *testing.T) {
     storeOpts := &StoreOptions{
         Epochs: 1,
         Encryption: &EncryptionOptions{
-            Key: key,
+            Key:   key,
+            Suite: encryption.AES256GCM,
         },
     }
 
@@ -726,7 +728,8 @@ func TestEncryptionWithFile(t *testing.T) {
     // Read with decryption
     readOpts := &ReadOptions{
         Encryption: &EncryptionOptions{
-            Key: key,
+            Key:   key,
+            Suite: encryption.AES256GCM,
         },
     }
 
@@ -842,5 +845,50 @@ func TestEncryptionKeyValidation(t *testing.T) {
                 }
             }
         })
+    }
+}
+
+// TestLargeFileIntegrity tests storing and reading a 1MB file to verify data integrity
+func TestLargeFileIntegrity(t *testing.T) {
+    client := newTestClient(t)
+
+    // Create 1MB of random test data
+    size := 1024 * 1024 // 1MB
+    testData := make([]byte, size)
+    rand.Read(testData)
+
+    // Store the data
+    storeOpts := &StoreOptions{
+        Epochs: 1,
+    }
+    resp, err := client.Store(testData, storeOpts)
+    if err != nil {
+        t.Fatalf("Failed to store large file: %v", err)
+    }
+
+    resp.NormalizeBlobResponse()
+    blobID := resp.Blob.BlobID
+
+    // Read the data back
+    retrieved, err := client.Read(blobID, nil)
+    if err != nil {
+        t.Fatalf("Failed to read large file: %v", err)
+    }
+
+    // Verify data integrity
+    if len(retrieved) != size {
+        t.Errorf("Retrieved data size mismatch. Expected: %d bytes, Got: %d bytes",
+            size, len(retrieved))
+    }
+
+    if !bytes.Equal(retrieved, testData) {
+        t.Error("Retrieved data does not match original data")
+    }
+
+    // Verify data integrity using hash comparison
+    originalHash := sha256.Sum256(testData)
+    retrievedHash := sha256.Sum256(retrieved)
+    if originalHash != retrievedHash {
+        t.Error("Data integrity check failed: SHA-256 hashes do not match")
     }
 }
