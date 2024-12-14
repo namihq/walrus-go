@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"bytes"
 )
 
 // gcmContentCipher implements ContentCipher interface
@@ -20,26 +19,18 @@ const (
 	defaultBufferSize = 32 * 1024
 )
 
-type gcmEncryptReader struct {
-	src    io.Reader
-	gcm    cipher.AEAD
-	nonce  []byte
-	buf    bytes.Buffer
-}
-
-type gcmDecryptReader struct {
-	src    io.Reader
-	gcm    cipher.AEAD
-	nonce  []byte
-	buf    bytes.Buffer
-}
-
 func (c *gcmContentCipher) EncryptStream(src io.Reader, dst io.Writer) error {
 	if c.gcm == nil {
 		return fmt.Errorf("gcm cipher is not initialized")
 	}
 
-	// Generate nonce
+	// Generate a random key for content encryption
+	contentKey := make([]byte, 32)
+	if _, err := rand.Read(contentKey); err != nil {
+		return fmt.Errorf("failed to generate content key: %w", err)
+	}
+
+	// Generate a random nonce
 	nonce := make([]byte, c.gcm.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return fmt.Errorf("failed to generate nonce: %w", err)
@@ -50,46 +41,53 @@ func (c *gcmContentCipher) EncryptStream(src io.Reader, dst io.Writer) error {
 		return fmt.Errorf("failed to write nonce: %w", err)
 	}
 
-	reader := &gcmEncryptReader{
-		src:    src,
-		gcm:    c.gcm,
-		nonce:  nonce,
-	}
+	// Create a pipe for streaming
+	pr, pw := io.Pipe()
 
-	_, err := io.Copy(dst, reader)
-	return err
-}
-
-func (r *gcmEncryptReader) Read(data []byte) (int, error) {
-	// Similar to cbcEncryptReader but for GCM mode
-	n, err := r.src.Read(data)
-	if n > 0 {
-		r.buf.Write(data[:n])
-	}
-
-	if err == io.EOF {
-		if r.buf.Len() > 0 {
-			plaintext := r.buf.Bytes()
-			r.buf.Reset()
-			ciphertext := r.gcm.Seal(nil, r.nonce, plaintext, nil)
-			copy(data, ciphertext)
-			return len(ciphertext), io.EOF
+	// Start a goroutine to handle encryption
+	errCh := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		
+		// Calculate buffer size to account for maximum possible encryption overhead
+		buf := make([]byte, defaultBufferSize)
+		// Pre-allocate a larger buffer for the ciphertext that includes GCM overhead
+		ciphertextBuf := make([]byte, 0, defaultBufferSize+c.gcm.Overhead())
+		
+		for {
+			n, err := src.Read(buf)
+			if n > 0 {
+				// Encrypt the chunk, using the pre-allocated buffer
+				ciphertext := c.gcm.Seal(ciphertextBuf[:0], nonce, buf[:n], nil)
+				
+				// Write the encrypted chunk
+				if _, err := pw.Write(ciphertext); err != nil {
+					errCh <- fmt.Errorf("failed to write encrypted chunk: %w", err)
+					return
+				}
+			}
+			if err == io.EOF {
+				errCh <- nil
+				return
+			}
+			if err != nil {
+				errCh <- fmt.Errorf("failed to read source: %w", err)
+				return
+			}
 		}
-		return 0, io.EOF
+	}()
+
+	// Copy encrypted data to destination
+	if _, err := io.Copy(dst, pr); err != nil {
+		return fmt.Errorf("failed to copy encrypted data: %w", err)
 	}
 
-	if err != nil {
-		return 0, err
+	// Check for encryption errors
+	if err := <-errCh; err != nil {
+		return err
 	}
 
-	if r.buf.Len() >= defaultBufferSize {
-		plaintext := r.buf.Next(defaultBufferSize)
-		ciphertext := r.gcm.Seal(nil, r.nonce, plaintext, nil)
-		copy(data, ciphertext)
-		return len(ciphertext), nil
-	}
-
-	return 0, nil
+	return nil
 }
 
 func (c *gcmContentCipher) DecryptStream(src io.Reader, dst io.Writer) error {
@@ -107,25 +105,29 @@ func (c *gcmContentCipher) DecryptStream(src io.Reader, dst io.Writer) error {
 	go func() {
 		defer pw.Close()
 
-		// Calculate buffer size to include GCM overhead
+		// Calculate exact buffer size for one complete encrypted block
+		// GCM overhead (16 bytes) + block size (which should match encryption)
 		bufSize := defaultBufferSize + c.gcm.Overhead()
 		buf := make([]byte, bufSize)
 
 		for {
-			n, err := src.Read(buf)
-			if n > 0 {
-				// Decrypt the chunk
-				plaintext, err := c.gcm.Open(nil, nonce, buf[:n], nil)
-				if err != nil {
-					errCh <- fmt.Errorf("failed to decrypt chunk: %w", err)
-					return
+			// Read exact size of one encrypted block
+			n, err := io.ReadFull(src, buf)
+			if err == io.ErrUnexpectedEOF {
+				// Handle last partial block
+				if n > 0 {
+					plaintext, err := c.gcm.Open(nil, nonce, buf[:n], nil)
+					if err != nil {
+						errCh <- fmt.Errorf("failed to decrypt final block: %w", err)
+						return
+					}
+					if _, err := pw.Write(plaintext); err != nil {
+						errCh <- fmt.Errorf("failed to write final decrypted block: %w", err)
+						return
+					}
 				}
-
-				// Write the decrypted chunk
-				if _, err := pw.Write(plaintext); err != nil {
-					errCh <- fmt.Errorf("failed to write decrypted chunk: %w", err)
-					return
-				}
+				errCh <- nil
+				return
 			}
 			if err == io.EOF {
 				errCh <- nil
@@ -133,6 +135,19 @@ func (c *gcmContentCipher) DecryptStream(src io.Reader, dst io.Writer) error {
 			}
 			if err != nil {
 				errCh <- fmt.Errorf("failed to read source: %w", err)
+				return
+			}
+
+			// Decrypt the complete block
+			plaintext, err := c.gcm.Open(nil, nonce, buf[:n], nil)
+			if err != nil {
+				errCh <- fmt.Errorf("failed to decrypt block: %w", err)
+				return
+			}
+
+			// Write the decrypted block
+			if _, err := pw.Write(plaintext); err != nil {
+				errCh <- fmt.Errorf("failed to write decrypted block: %w", err)
 				return
 			}
 		}
