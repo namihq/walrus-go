@@ -45,10 +45,10 @@ The **walrus-go** SDK provides a Go client for interacting with the [Walrus](htt
 To install the **walrus-go** SDK, use `go get`:
 
 ```bash
-go get github.com/suiet/walrus-go
+go get github.com/namihq/walrus-go
 ```
 
-Replace `github.com/suiet/walrus-go` with the actual import path of your module.
+Replace `github.com/namihq/walrus-go` with the actual import path of your module.
 
 ## Getting Started
 
@@ -62,7 +62,7 @@ First, import the `walrus` package and create a new client instance:
 package main
 
 import (
-    "github.com/suiet/walrus-go"
+    "github.com/namihq/walrus-go"
 )
 
 func main() {
