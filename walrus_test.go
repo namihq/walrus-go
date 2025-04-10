@@ -56,6 +56,40 @@ func TestStore(t *testing.T) {
     }
 }
 
+// TestStoreDeletable tests storing a deletable blob
+func TestStoreDeletable(t *testing.T) {
+    client := newTestClient(t)
+    resp, err := client.Store([]byte(testContent+"Deletable!"), &StoreOptions{Deletable: true})
+    if err != nil {
+        t.Fatalf("Failed to store data: %v", err)
+    }
+
+    resp.NormalizeBlobResponse()
+    if resp.Blob.BlobID == "" {
+        t.Error("Store operation failed: received empty blob ID in response")
+    }
+    if resp.Blob.EndEpoch <= 0 {
+        t.Error("Store operation failed: received invalid end epoch (must be positive)")
+    }
+}
+
+// TestStoreSendObjectTo tests storing and sending an object to an address
+func TestStoreSendObjectTo(t *testing.T) {
+    client := newTestClient(t)
+    resp, err := client.Store([]byte(testContent+"Sent!"), &StoreOptions{SendObjectTo: "0x0000000000000000000000000000000000000000000000000000000000000000"})
+    if err != nil {
+        t.Fatalf("Failed to store data: %v", err)
+    }
+
+    resp.NormalizeBlobResponse()
+    if resp.Blob.BlobID == "" {
+        t.Error("Store operation failed: received empty blob ID in response")
+    }
+    if resp.Blob.EndEpoch <= 0 {
+        t.Error("Store operation failed: received invalid end epoch (must be positive)")
+    }
+}
+
 // TestStoreFromReader tests storing data from a reader
 func TestStoreFromReader(t *testing.T) {
     client := newTestClient(t)
