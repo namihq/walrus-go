@@ -124,6 +124,10 @@ type EncryptionOptions struct {
 // StoreOptions defines options for storing data
 type StoreOptions struct {
     Epochs int // Number of storage epochs
+    // Store as a deletable blob, instead of a permanent one
+    Deletable bool
+    // Send the blob object to an address
+    SendObjectTo string
     // Encryption configuration, if nil encryption is disabled
     Encryption *EncryptionOptions
 }
@@ -226,8 +230,25 @@ func (opts *EncryptionOptions) getCipher() (encryption.ContentCipher, error) {
 // Store stores data on the Walrus Publisher and returns the complete store response
 func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error) {
     urlStr := "/v1/blobs"
-    if opts != nil && opts.Epochs > 0 {
-        urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
+    params := url.Values{}
+
+    if opts != nil {
+        if opts.Epochs > 0 {
+            params.Add("epochs", strconv.Itoa(opts.Epochs))
+        }
+
+        if opts.Deletable {
+            params.Add("deletable", "true")
+        }
+
+        if opts.SendObjectTo != "" {
+            params.Add("send_object_to", opts.SendObjectTo)
+        }
+
+    }
+
+    if encoded := params.Encode(); encoded != "" {
+        urlStr += "?" + encoded
     }
 
     var reader io.Reader = bytes.NewReader(data)
@@ -276,8 +297,25 @@ func (c *Client) Store(data []byte, opts *StoreOptions) (*StoreResponse, error) 
 // StoreFromReader stores data from an io.Reader and returns the complete store response
 func (c *Client) StoreFromReader(reader io.Reader, opts *StoreOptions) (*StoreResponse, error) {
     urlStr := "/v1/blobs"
-    if opts != nil && opts.Epochs > 0 {
-        urlStr += "?epochs=" + strconv.Itoa(opts.Epochs)
+    params := url.Values{}
+
+    if opts != nil {
+        if opts.Epochs > 0 {
+            params.Add("epochs", strconv.Itoa(opts.Epochs))
+        }
+
+        if opts.Deletable {
+            params.Add("deletable", "true")
+        }
+
+        if opts.SendObjectTo != "" {
+            params.Add("send_object_to", opts.SendObjectTo)
+        }
+
+    }
+
+    if encoded := params.Encode(); encoded != "" {
+        urlStr += "?" + encoded
     }
 
     var err error
